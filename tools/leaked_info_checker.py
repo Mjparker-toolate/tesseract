@@ -195,37 +195,39 @@ MAX_FILE_SIZE_BYTES = 1_000_000  # 1 MB
 # HIBP functions
 # ---------------------------------------------------------------------------
 
-def _make_request(url):
+def _make_request(url, api_key=None, _retries_left=5):
     """Make an HTTP GET request with appropriate headers."""
     req = urllib.request.Request(url)
     req.add_header("User-Agent", USER_AGENT)
     req.add_header("Accept", "application/json")
+    if api_key:
+        req.add_header("hibp-api-key", api_key)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.read().decode("utf-8"), resp.status
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return None, 404
-        if e.code == 429:
-            print("  [!] Rate limited. Waiting before retry...")
+        if e.code == 429 and _retries_left > 0:
+            print(f"  [!] Rate limited. Waiting before retry ({_retries_left} retries left)...")
             time.sleep(3)
-            return _make_request(url)
+            return _make_request(url, api_key=api_key, _retries_left=_retries_left - 1)
         raise
 
 
-def check_email_breaches(email):
+def check_email_breaches(email, api_key=None):
     """Check if an email appears in known data breaches via HIBP."""
     url = f"{HIBP_API_BASE}/breachedaccount/{urllib.request.quote(email)}?truncateResponse=false"
-    data, status = _make_request(url)
+    data, status = _make_request(url, api_key=api_key)
     if status == 404 or data is None:
         return []
     return json.loads(data)
 
 
-def check_email_pastes(email):
+def check_email_pastes(email, api_key=None):
     """Check if an email appears in known paste dumps via HIBP."""
     url = f"{HIBP_API_BASE}/pasteaccount/{urllib.request.quote(email)}"
-    data, status = _make_request(url)
+    data, status = _make_request(url, api_key=api_key)
     if status == 404 or data is None:
         return []
     return json.loads(data)
@@ -312,7 +314,7 @@ def _redact(value, visible_chars=6):
 # Email check
 # ---------------------------------------------------------------------------
 
-def check_single_email(email, check_pastes=False):
+def check_single_email(email, api_key=None, check_pastes=False):
     """Run all checks for a single email and print results."""
     print(f"\n{'='*60}")
     print(f"Checking: {email}")
@@ -320,7 +322,7 @@ def check_single_email(email, check_pastes=False):
 
     print("\n[*] Checking known data breaches...")
     try:
-        breaches = check_email_breaches(email)
+        breaches = check_email_breaches(email, api_key=api_key)
     except Exception as e:
         print(f"  [!] Error querying breach database: {e}")
         breaches = []
@@ -336,7 +338,7 @@ def check_single_email(email, check_pastes=False):
     if check_pastes:
         print("[*] Checking known paste dumps...")
         try:
-            pastes = check_email_pastes(email)
+            pastes = check_email_pastes(email, api_key=api_key)
         except Exception as e:
             print(f"  [!] Error querying paste database: {e}")
             pastes = []
@@ -489,8 +491,10 @@ def main():
     )
     parser.add_argument(
         "--api-key", "-k",
+        default=os.environ.get("HIBP_API_KEY"),
         help="HIBP API key (required for breach/paste lookups; "
-             "password checks do not require a key).",
+             "password checks do not require a key). "
+             "Can also be set via the HIBP_API_KEY environment variable.",
     )
     parser.add_argument(
         "--scan-keys", "-s",
@@ -522,8 +526,20 @@ def main():
     # ------------------------------------------------------------------
     # Email checks
     # ------------------------------------------------------------------
+    api_key = args.api_key
+
+    # Best-effort: scrub the API key from sys.argv so it is less visible
+    # in /proc/PID/cmdline and process listings. The reliable approach is
+    # to use the HIBP_API_KEY env var instead of --api-key on the CLI.
+    if api_key:
+        for i, arg in enumerate(sys.argv):
+            if arg == api_key:
+                sys.argv[i] = "<redacted>"
+            elif arg.startswith("--api-key=") or arg.startswith("-k="):
+                sys.argv[i] = arg.split("=", 1)[0] + "=<redacted>"
+
     if args.email:
-        total_breaches += check_single_email(args.email, check_pastes=args.pastes)
+        total_breaches += check_single_email(args.email, api_key=api_key, check_pastes=args.pastes)
 
     if args.emails_file:
         try:
@@ -535,7 +551,7 @@ def main():
 
         print(f"\nLoaded {len(emails)} email(s) from {args.emails_file}")
         for email in emails:
-            total_breaches += check_single_email(email, check_pastes=args.pastes)
+            total_breaches += check_single_email(email, api_key=api_key, check_pastes=args.pastes)
 
     # ------------------------------------------------------------------
     # Password check
