@@ -528,16 +528,6 @@ def main():
     # ------------------------------------------------------------------
     api_key = args.api_key
 
-    # Best-effort: scrub the API key from sys.argv so it is less visible
-    # in /proc/PID/cmdline and process listings. The reliable approach is
-    # to use the HIBP_API_KEY env var instead of --api-key on the CLI.
-    if api_key:
-        for i, arg in enumerate(sys.argv):
-            if arg == api_key:
-                sys.argv[i] = "<redacted>"
-            elif arg.startswith("--api-key=") or arg.startswith("-k="):
-                sys.argv[i] = arg.split("=", 1)[0] + "=<redacted>"
-
     if args.email:
         total_breaches += check_single_email(args.email, api_key=api_key, check_pastes=args.pastes)
 
