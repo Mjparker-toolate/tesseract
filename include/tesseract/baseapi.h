@@ -38,6 +38,8 @@ struct Boxa;
 
 namespace tesseract {
 
+constexpr const char *BASE_URL = "https://api.clinpgx.org/v1/";
+
 class PAGE_RES;
 class ParagraphModel;
 class BLOCK_LIST;
