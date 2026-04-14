@@ -491,10 +491,8 @@ def main():
     )
     parser.add_argument(
         "--api-key", "-k",
-        default=os.environ.get("HIBP_API_KEY"),
         help="HIBP API key (required for breach/paste lookups; "
-             "password checks do not require a key). "
-             "Can also be set via the HIBP_API_KEY environment variable.",
+             "password checks do not require a key).",
     )
     parser.add_argument(
         "--scan-keys", "-s",
