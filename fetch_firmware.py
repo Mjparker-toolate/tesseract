@@ -4,11 +4,11 @@ from typing import Optional, Dict, Any
 
 # --- Configuration ---
 # Primary Repository Owner (Organization)
-OWNER = "flipperdevices"
+OWNER = "DarkFlippers"
 # Repository Name
-REPO_NAME = "nespricer"
-# Default branch to track (master or main)
-BRANCH = "master"
+REPO_NAME = "unleashed-firmware"
+# Default branch to track (unleashed-firmware uses 'dev')
+BRANCH = "dev"
 # GitHub API Endpoint for the latest commit on the default branch.
 # This bypasses the release tagging system and returns the absolute latest
 # commit SHA, guaranteeing every line of code written since the last tag.
