@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+.pytest_cache/
+build/
+dist/
+.cache-spotify
+*.sqlite
+*.sqlite3
