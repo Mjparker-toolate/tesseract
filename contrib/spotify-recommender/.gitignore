@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+.pytest_cache/
+build/
+dist/
+.cache-spotify
+*.sqlite
+*.sqlite3
+
+# Parent repo's root .gitignore has `config.*` (for Tesseract's config.xxx
+# artefacts) which would otherwise eat our Python module. Un-ignore it.
+!src/spotify_recommender/config.py
