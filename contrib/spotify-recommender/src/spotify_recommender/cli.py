@@ -34,10 +34,14 @@ def cli() -> None:
 
 @cli.command()
 def auth() -> None:
-    """Run the Spotify OAuth flow. Opens a browser."""
+    """Run the Spotify OAuth flow. Opens a browser.
+
+    Uses PKCE (Client ID only) when SPOTIFY_CLIENT_SECRET is absent,
+    otherwise the classic Authorization-Code flow.
+    """
     cfg = load_config(require_spotify=True)
-    user = force_auth(cfg)
-    console.print(f"[green]Authenticated as[/green] {user}")
+    user, flow = force_auth(cfg)
+    console.print(f"[green]Authenticated as[/green] {user} [dim]({flow} flow)[/dim]")
     console.print(f"Token cached at {cfg.token_cache_path}")
 
 

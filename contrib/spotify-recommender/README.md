@@ -55,30 +55,47 @@ The offline path supports every data file Spotify includes:
 
 Duplicates across formats are collapsed by (artist, title) lookup.
 
-### B. Live API (needs a 5-minute developer-app setup)
+### B. Live API (needs a 5-minute developer-app setup, PKCE — no Secret)
 
 Enables pulling liked / playlists / top / recently-played directly and
 injecting a small share of novel tracks (unheard-by-you) into each
 recommendation list.
 
-1. https://developer.spotify.com/dashboard → Create app → redirect URI
-   `http://127.0.0.1:8888/callback` → copy the Client ID + Secret.
-2. Drop them into `.env` (see `.env.example`).
-3. Optional Last.fm API key for richer tags: https://www.last.fm/api/account/create
+The CLI uses **PKCE by default** — you only need a Client ID, never a
+Client Secret. This is Spotify's recommended flow for CLI / desktop apps.
 
-```bash
-cp .env.example .env
-spotify-recommender auth          # opens browser
-spotify-recommender ingest
-spotify-recommender enrich-tags   # optional
-spotify-recommender import-history ~/Downloads/Spotify_Extended_History   # optional
-spotify-recommender train --k 8
-spotify-recommender recommend --auto-mood --n 20 --exploration 0.15
-```
+1. **Register the app** at https://developer.spotify.com/dashboard:
+   - Click **Create app**.
+   - **Redirect URI**: `http://127.0.0.1:8888/callback` (click Add).
+   - **APIs used**: check **Web API**.
+   - Save.
+2. **Copy the Client ID** from the app's Settings page. Ignore "View client secret".
+3. **Configure** your local `.env`:
+   ```bash
+   cp .env.example .env
+   # edit .env:
+   #   SPOTIFY_CLIENT_ID=<paste your Client ID>
+   #   SPOTIFY_CLIENT_SECRET=        # leave empty for PKCE
+   ```
+4. (Optional) Get a free Last.fm API key for richer tags:
+   https://www.last.fm/api/account/create → add to `.env` as `LASTFM_API_KEY`.
+5. **Run**:
+   ```bash
+   spotify-recommender auth          # opens browser, click "Agree"
+   spotify-recommender ingest
+   spotify-recommender enrich-tags   # optional — needs LASTFM_API_KEY
+   spotify-recommender train --k 8
+   spotify-recommender recommend --auto-mood --n 20 --exploration 0.15
+   ```
 
-Both paths write to the same SQLite cache, so you can mix them: import
-your data export once, then top it up with live `ingest` runs when you
-want recent-plays freshness.
+Both A and B write to the same SQLite cache, so you can mix them: import
+your data export once for deep history, then top it up with live `ingest`
+runs when you want recent-plays freshness.
+
+#### Alternative: Authorization-Code flow (with Client Secret)
+
+Only use this if you have a specific reason to. Copy **both** the Client ID
+and Secret into `.env`, and the CLI auto-switches to the classic flow.
 
 ## Multi-device / cloud
 

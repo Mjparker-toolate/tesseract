@@ -38,16 +38,22 @@ class Config:
 
     @property
     def has_spotify_credentials(self) -> bool:
-        return bool(self.client_id and self.client_secret)
+        """True when at least a Client ID is present (Secret optional under PKCE)."""
+        return bool(self.client_id)
+
+    @property
+    def use_pkce(self) -> bool:
+        """Use PKCE (no Client Secret) when only Client ID is configured."""
+        return bool(self.client_id) and not self.client_secret
 
 
 def load_config(require_spotify: bool = False) -> Config:
     """Load configuration from environment / .env.
 
-    ``require_spotify=True`` enforces the presence of Spotify API credentials
-    (for the live-API commands like ``auth`` and ``ingest``). Offline
-    commands such as ``import-export``, ``train``, and ``recommend`` run
-    without credentials.
+    ``require_spotify=True`` enforces the presence of a Client ID (for the
+    live-API commands like ``auth`` and ``ingest``). Client Secret is
+    optional — when absent, the auth layer uses PKCE. Offline commands
+    (``import-export``, ``train``, ``recommend``) run with no credentials.
     """
     home = _home()
     home.mkdir(parents=True, exist_ok=True)
@@ -56,11 +62,12 @@ def load_config(require_spotify: bool = False) -> Config:
     redirect_uri = os.getenv(
         "SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"
     ).strip()
-    if require_spotify and (not client_id or not client_secret):
+    if require_spotify and not client_id:
         raise RuntimeError(
-            "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env "
-            "for this command. For an offline-only workflow, use "
-            "`spotify-recommender import-export <path>` instead."
+            "SPOTIFY_CLIENT_ID must be set in .env for this command. "
+            "SPOTIFY_CLIENT_SECRET is optional — leave it empty to use "
+            "the PKCE flow (recommended for CLI use). For a fully offline "
+            "workflow, use `spotify-recommender import-export <path>` instead."
         )
     lastfm = os.getenv("LASTFM_API_KEY", "").strip() or None
     return Config(
