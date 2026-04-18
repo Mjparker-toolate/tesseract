@@ -9,6 +9,7 @@ from rich.table import Table
 
 from .auth import force_auth, get_client
 from .config import load_config
+from .export_import import import_account_export
 from .features import build_feature_matrix
 from .history import import_extended_history
 from .ingest import (
@@ -34,7 +35,7 @@ def cli() -> None:
 @cli.command()
 def auth() -> None:
     """Run the Spotify OAuth flow. Opens a browser."""
-    cfg = load_config()
+    cfg = load_config(require_spotify=True)
     user = force_auth(cfg)
     console.print(f"[green]Authenticated as[/green] {user}")
     console.print(f"Token cached at {cfg.token_cache_path}")
@@ -43,7 +44,7 @@ def auth() -> None:
 @cli.command()
 def ingest() -> None:
     """Pull liked songs, playlists, recent plays, top tracks into the cache."""
-    cfg = load_config()
+    cfg = load_config(require_spotify=True)
     sp = get_client(cfg)
     store = Storage(cfg.db_path)
 
@@ -94,6 +95,40 @@ def import_history_cmd(directory: str) -> None:
     store = Storage(cfg.db_path)
     n = import_extended_history(Path(directory), store)
     console.print(f"[green]Imported {n} plays[/green]")
+
+
+@cli.command("import-export")
+@click.argument("path", type=click.Path(exists=True))
+def import_export_cmd(path: str) -> None:
+    """Import a Spotify account-data export (directory or .zip).
+
+    No Spotify developer app required. Request your data via
+    Spotify → Account → Privacy → "Request your data" or "Request extended
+    streaming history", unzip it, and point this command at the folder.
+    """
+    cfg = load_config()
+    store = Storage(cfg.db_path)
+    console.print(f"[cyan]Importing {path}...[/cyan]")
+    counts = import_account_export(path, store)
+    table = Table(title="Imported")
+    table.add_column("Category")
+    table.add_column("Count", justify="right")
+    for label, value in [
+        ("Liked tracks", counts.liked),
+        ("Playlists", counts.playlists),
+        ("Playlist tracks", counts.playlist_tracks),
+        ("Plays", counts.plays),
+        ("Followed artists", counts.followed_artists),
+        ("Distinct artists", counts.artists_seen),
+    ]:
+        table.add_row(label, str(value))
+    console.print(table)
+    if counts.files:
+        console.print(
+            f"[dim]Files read: {', '.join(counts.files[:10])}"
+            + ("..." if len(counts.files) > 10 else "")
+            + "[/dim]"
+        )
 
 
 @cli.command()
@@ -208,13 +243,22 @@ def recommend_cmd(
         sys.exit(1)
 
     sp = None
+    effective_exploration = exploration
     if exploration > 0:
-        try:
-            sp = get_client(cfg)
-        except Exception as e:  # noqa: BLE001 — auth path can raise many things
+        if not cfg.has_spotify_credentials:
             console.print(
-                f"[yellow]Skipping novel tracks (Spotify unavailable): {e}[/yellow]"
+                "[yellow]No Spotify credentials — skipping novel tracks "
+                "(offline mode).[/yellow]"
             )
+            effective_exploration = 0.0
+        else:
+            try:
+                sp = get_client(cfg)
+            except Exception as e:  # noqa: BLE001 — auth path can raise many things
+                console.print(
+                    f"[yellow]Skipping novel tracks (Spotify unavailable): {e}[/yellow]"
+                )
+                effective_exploration = 0.0
 
     recs = recommend(
         fm=fm,
@@ -222,7 +266,7 @@ def recommend_cmd(
         store=store,
         query_vec=query_vec,
         n=n,
-        exploration=exploration,
+        exploration=effective_exploration,
         sp=sp,
     )
 

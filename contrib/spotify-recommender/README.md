@@ -26,51 +26,70 @@ Clustering over that feature space gives labelled moods. A mood query is
 resolved either to a named cluster (`--mood chill`) or inferred from the
 centroid of your last N plays (`--auto-mood`).
 
-## Prerequisites
+## Two ways to use it
 
-- Python 3.10+
-- A Spotify Developer app: https://developer.spotify.com/dashboard
-  - Redirect URI: `http://127.0.0.1:8888/callback`
-- (Optional) Last.fm API key: https://www.last.fm/api/account/create
-- (Optional) Your Spotify Extended Streaming History JSON export
-  (Account → Privacy → "Request extended streaming history")
+### A. Offline-only (no OAuth, no developer app)
 
-## Setup
+Request your data from Spotify (Account → Privacy → "Request your data"
+and/or "Request extended streaming history"). When the export arrives,
+unzip it and feed the folder to the importer. No dashboard, no browser
+consent flow, no API keys required.
 
 ```bash
 cd contrib/spotify-recommender
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-cp .env.example .env
-# edit .env with your Spotify (and optional Last.fm) credentials
+spotify-recommender import-export ~/Downloads/my_spotify_data
+spotify-recommender train --k 8
+spotify-recommender moods
+spotify-recommender recommend --auto-mood --n 20 --exploration 0
 ```
 
-## Usage
+The offline path supports every data file Spotify includes:
+
+- ``YourLibrary.json``                  — liked songs + followed artists
+- ``Playlist*.json``                    — your playlists and their items
+- ``StreamingHistory*.json``            — ~1 year of plays
+- ``Streaming_History_Audio_*.json``    — lifetime extended history
+
+Duplicates across formats are collapsed by (artist, title) lookup.
+
+### B. Live API (needs a 5-minute developer-app setup)
+
+Enables pulling liked / playlists / top / recently-played directly and
+injecting a small share of novel tracks (unheard-by-you) into each
+recommendation list.
+
+1. https://developer.spotify.com/dashboard → Create app → redirect URI
+   `http://127.0.0.1:8888/callback` → copy the Client ID + Secret.
+2. Drop them into `.env` (see `.env.example`).
+3. Optional Last.fm API key for richer tags: https://www.last.fm/api/account/create
 
 ```bash
-# 1. One-time OAuth (opens a browser)
-spotify-recommender auth
-
-# 2. Pull your library into a local SQLite cache
+cp .env.example .env
+spotify-recommender auth          # opens browser
 spotify-recommender ingest
-
-# 3. (Optional) enrich with Last.fm tags
-spotify-recommender enrich-tags
-
-# 4. (Optional) import extended streaming history
-spotify-recommender import-history ~/Downloads/Spotify_Extended_History
-
-# 5. Train the mood model
+spotify-recommender enrich-tags   # optional
+spotify-recommender import-history ~/Downloads/Spotify_Extended_History   # optional
 spotify-recommender train --k 8
-
-# 6. Inspect learned vibes
-spotify-recommender moods
-
-# 7. Get recommendations
-spotify-recommender recommend --mood chill --n 20
 spotify-recommender recommend --auto-mood --n 20 --exploration 0.15
 ```
+
+Both paths write to the same SQLite cache, so you can mix them: import
+your data export once, then top it up with live `ingest` runs when you
+want recent-plays freshness.
+
+## Multi-device / cloud
+
+Everything the recommender needs lives under `~/.spotify-recommender/`
+(SQLite cache, trained model). To use the tool on multiple machines:
+
+- Simplest: copy that folder.
+- Auto-sync, zero code: place it inside Dropbox / iCloud Drive / Google
+  Drive / OneDrive (or symlink it there).
+- Override the location with `SPOTIFY_RECOMMENDER_HOME=/path/to/shared`.
+
 
 ## Data flow
 
