@@ -5,6 +5,7 @@ on:
   #push:
   schedule:
     - cron: 0 20 * * *
+  workflow_dispatch:
 jobs:
 
   linux:
@@ -20,7 +21,7 @@ jobs:
           - { name: ubuntu-22.04-gcc-11-autotools, os: ubuntu-22.04, cxx: g++-11 } #installed
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
 

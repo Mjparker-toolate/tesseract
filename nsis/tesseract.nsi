@@ -16,7 +16,6 @@
 ; https://nsis.sourceforge.io/Docs/Modern%20UI%202/Readme.html
 
 ; TODO:
-; * Fix PreventMultipleInstances.
 ; * Add Tesseract icon and images for installer.
 
 SetCompressor /FINAL /SOLID lzma
@@ -171,6 +170,7 @@ Var OLD_KEY
 !insertmacro MUI_LANGUAGE "French"
 !insertmacro MUI_LANGUAGE "German"
 !insertmacro MUI_LANGUAGE "Italian"
+!insertmacro MUI_LANGUAGE "Portuguese"
 !insertmacro MUI_LANGUAGE "Russian"
 !insertmacro MUI_LANGUAGE "Slovak"
 !insertmacro MUI_LANGUAGE "Spanish"
@@ -1113,7 +1113,13 @@ SectionGroupEnd
 
   LangString DESC_SEC0001 ${LANG_ENGLISH} "Installation files."
   ;LangString DESC_SecHelp ${LANG_ENGLISH} "Help information."
-  LangString DESC_SecCS    ${LANG_ENGLISH} "Add shortcuts to Start menu."
+  LangString DESC_SecScrollView ${LANG_ENGLISH} "Extracts the Java-based ScrollView JAR files, which are used primarily by developers for debugging OCR results."
+  LangString DESC_SecTr ${LANG_ENGLISH} "Deploys the additional executables required for users who require training on custom Tesseract OCR models."
+  LangString DESC_SecCS ${LANG_ENGLISH} "Add shortcuts to Start menu."
+  LangString DESC_SecGrp_LD ${LANG_ENGLISH} "Deploys the foundational English language pack and the Orientation and Script Detection (OSD) module."
+  LangString DESC_SecGrp_ASD ${LANG_ENGLISH} "An optional group of sections that download script-level data files."
+  LangString DESC_SecGrp_ALD ${LANG_ENGLISH} "An optional group containing dozens of specific language packs."
+  LangString DESC_SecAddEnvPath ${LANG_ENGLISH} "Allows running Tesseract from any command prompt."
 
   LangString DESC_SEC0001 ${LANG_FRENCH} "Fichier d'installation."
   ;LangString DESC_SecHelp ${LANG_FRENCH} "Aide."
@@ -1127,8 +1133,17 @@ SectionGroupEnd
   ;LangString DESC_SecHelp ${LANG_ITALIAN} "Guida di informazioni."
   LangString DESC_SecCS    ${LANG_ITALIAN} "Aggiungere collegamenti al menu Start."
 
+  LangString DESC_SEC0001 ${LANG_PORTUGUESE} "Arquivos de instalação."
+  ;LangString DESC_SecHelp ${LANG_PORTUGUESE} "Informação de ajuda."
+  LangString DESC_SecScrollView ${LANG_PORTUGUESE} "Extrai os arquivos JAR do ScrollView baseados em Java, que são usados ​​principalmente por desenvolvedores."
+  LangString DESC_SecTr ${LANG_PORTUGUESE} "Instala os executáveis ​​adicionais necessários para usuários que precisam treinar modelos OCR."
+  LangString DESC_SecCS ${LANG_PORTUGUESE} "Adiciona atalhos ao Menu iniciar."
+  LangString DESC_SecGrp_LD ${LANG_PORTUGUESE} "Instala o pacote básico de idioma inglês e o módulo de Orientação e Detecção de Roteiro (OSD)."
+  LangString DESC_SecGrp_ASD ${LANG_PORTUGUESE} "Um grupo opcional de seções que baixam arquivos de dados em nível de script."
+  LangString DESC_SecGrp_ALD ${LANG_PORTUGUESE} "Um grupo opcional contendo dezenas de pacotes de idiomas específicos."
+
   LangString DESC_SEC0001 ${LANG_SLOVAK} "Súbory inštalácie."
-  ;LangString DESC_SecHelp ${LANG_ENGLISH} "Pomocné informácie."
+  ;LangString DESC_SecHelp ${LANG_SLOVAK} "Pomocné informácie."
   LangString DESC_SecCS    ${LANG_SLOVAK} "Pridať odkaz do Start menu."
 
   LangString DESC_SEC0001 ${LANG_SPANISH} "Los archivos de instalación."
@@ -1142,7 +1157,12 @@ SectionGroupEnd
   ;Assign language strings to sections
   !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SEC0001} $(DESC_SEC0001)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecScrollView} $(DESC_SecScrollView)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecTr} $(DESC_SecTr)
     !insertmacro MUI_DESCRIPTION_TEXT ${SecCS} $(DESC_SecCS)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecGrp_LD} $(DESC_SecGrp_LD)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecGrp_ASD} $(DESC_SecGrp_ASD)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecGrp_ALD} $(DESC_SecGrp_ALD)
   !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------
@@ -1241,6 +1261,7 @@ Function .onInit
   ;done:
     ; Make selection based on System language ID
     System::Call 'kernel32::GetSystemDefaultLangID() i .r0'
+    IntOp $0 $0 & 0xFFFF ; Mask the value to 16 bits to ensure only the LANGID is kept
     ;http://msdn.microsoft.com/en-us/library/dd318693%28v=VS.85%29.aspx
     StrCmp $0 "1078" Afrikaans
     StrCmp $0 "1052" Albanian
@@ -1434,12 +1455,13 @@ FunctionEnd
 
 ; Prevent running multiple instances of the installer
 Function PreventMultipleInstances
-  ; TODO: Does not work.
   Push $R0
-  System::Call 'kernel32::CreateMutexA(i 0, i 0, t ${PRODUCT_NAME}) ?e'
+  System::Call 'kernel32::CreateMutex(p 0, i 0, t "${PRODUCT_NAME}") p .r1 ?e'
   Pop $R0
-  StrCmp $R0 0 +3
+  ; 183 is the Windows error code for ERROR_ALREADY_EXISTS
+  StrCmp $R0 183 0 +4
     MessageBox MB_OK|MB_ICONEXCLAMATION "The installer is already running." /SD IDOK
+    Pop $R0
     Abort
   Pop $R0
 FunctionEnd
