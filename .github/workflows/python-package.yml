@@ -1,4 +1,4 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# Lints and tests the Python project under contrib/spotify-recommender.
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
 name: Python package
@@ -6,29 +6,45 @@ name: Python package
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - 'contrib/spotify-recommender/**'
+      - '.github/workflows/python-package.yml'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'contrib/spotify-recommender/**'
+      - '.github/workflows/python-package.yml'
 
 jobs:
   build:
 
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # This is a C++ repository; the only Python project lives here. Running
+        # pytest from the repository root instead collects unrelated files,
+        # including the vendored googletest test scripts.
+        working-directory: contrib/spotify-recommender
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        # pyproject.toml declares requires-python = ">=3.10".
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        python -m pip install flake8
+        # The project uses a src layout, so it must be installed for
+        # `import spotify_recommender` to resolve. This also pulls in its
+        # runtime dependencies (numpy, scikit-learn, ...) and pytest.
+        python -m pip install -e ".[dev]"
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
