@@ -14,7 +14,7 @@ Run these first — they use in-repo images and the installed `eng`/`osd` data. 
 
 ## Full unit test suite
 
-The `unittest/` suite (googletest) needs the external corpus (fonts + `tessdata`/`tessdata_best`/`tessdata_fast`), which the CI clones from `egorpugin/tessdata` (>1 GB). Set it up only when running the full suite:
+The `unittest/` suite is googletest-based (62 test sources, 59 tests registered with `ctest`) and needs the external corpus (fonts + `tessdata`/`tessdata_best`/`tessdata_fast`), which CI clones from `egorpugin/tessdata` (>1 GB). Set it up only when running the full suite:
 ```
 git submodule update --init --recursive
 git clone https://github.com/egorpugin/tessdata tessdata_unittest
@@ -24,6 +24,12 @@ mv tessdata_unittest/* ../
 Then either:
 - CMake: configure with `-DBUILD_TESTS=ON -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`, build, and run via `ctest --test-dir build --output-on-failure`; or
 - autotools: `./autogen.sh && ./configure && make && make check`, then read `test-suite.log`.
+
+**Silent-failure trap — always check for this first.** In `CMakeLists.txt` the test wiring is guarded by
+`if(BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/unittest/third_party/googletest/CMakeLists.txt)`.
+If the googletest submodule is not initialized, CMake **silently skips every test with no error** and
+`ctest` cheerfully reports "No tests were found". Never interpret that as a pass. Confirm the submodule
+exists and that configure output shows `Build tests [BUILD_TESTS]: ON` before trusting a green run.
 
 Always pin `gcc/g++` (the default `c++` is Clang and fails to link `-lstdc++`).
 

@@ -11,8 +11,11 @@ You are a specialist in the Tesseract training pipeline. You operate the trainin
 
 ## Typical LSTM fine-tuning workflow
 
-1. Obtain a base traineddata (e.g. `eng.traineddata` from `tessdata_best`) and extract with `combine_tessdata -e` to get the starting `.lstm` model.
-2. Generate training pairs: `text2image --text=... --outputbase=... --font="..." --fonts_dir=...` produces matching `.tif`/`.box` (needs Pango/Cairo fonts — install fonts if missing).
+1. Obtain a base traineddata (e.g. `eng.traineddata` from `tessdata_best`) and extract the starting `.lstm` model:
+   `combine_tessdata -e eng.traineddata eng.lstm`. Related modes: `-u` unpack all, `-l` list network info, `-o` overwrite components.
+2. Generate training pairs: `text2image --text=... --outputbase=... --font="..." --fonts_dir=...` produces matching `.tif`/`.box`.
+   Fonts come from Pango/Cairo — run `text2image --list_available_fonts` first and confirm your `--font` string appears
+   verbatim in that list, otherwise text2image silently falls back to the `Arial` default and you train on the wrong glyphs.
 3. Build the unicharset and starter traineddata: `unicharset_extractor`, then `combine_lang_model` with your langdata.
 4. Produce `.lstmf` files (via `tesseract ... lstm.train`) and list them in a training/eval file list.
 5. Fine-tune: `lstmtraining --model_output ... --continue_from base.lstm --traineddata ... --train_listfile ... --max_iterations ...`.
