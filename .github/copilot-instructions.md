@@ -64,7 +64,7 @@ sudo make install               # Install to system
 
 ### Core Required Dependencies
 
-- **Leptonica 1.74.2+** (REQUIRED) - Image I/O library
+- **Leptonica 1.82+** (REQUIRED) - Image I/O library
   - Without this, build will fail
   - Usually installed via package manager: `libleptonica-dev` (Ubuntu) or `leptonica` (Homebrew)
 
