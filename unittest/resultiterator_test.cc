@@ -1,8 +1,8 @@
 
-#include <allheaders.h>
 #include <tesseract/baseapi.h>
 #include <tesseract/resultiterator.h>
 #include <string>
+#include "image.h"      // for Image
 #include "scrollview.h"
 
 #include "include_gunit.h"
@@ -32,9 +32,10 @@ protected:
   }
   ~ResultIteratorTest() override = default;
 
-  void SetImage(const char *filename) {
+  void SetImage(const char *filename, const char *language = "eng",
+                OcrEngineMode oem = tesseract::OEM_TESSERACT_ONLY) {
     src_pix_ = pixRead(TestDataNameToPath(filename).c_str());
-    api_.Init(TessdataPath().c_str(), "eng", tesseract::OEM_TESSERACT_ONLY);
+    api_.Init(TessdataPath().c_str(), language, oem);
     //    if (!FLAGS_tess_config.empty())
     //      api_.ReadConfigFile(FLAGS_tess_config.c_str());
     api_.SetPageSegMode(tesseract::PSM_AUTO);
@@ -355,6 +356,42 @@ TEST_F(ResultIteratorTest, ComplexTest) {
   delete it;
 }
 
+// Tests that restarting at a paragraph preserves the current paragraph while
+// iterating a page with multiple blocks and paragraphs.
+TEST_F(ResultIteratorTest, RestartParagraphTest) {
+  SetImage("8087_054.3B.tif");
+  ASSERT_EQ(api_.Recognize(nullptr), 0);
+  ResultIterator *it = api_.GetIterator();
+  ASSERT_NE(it, nullptr);
+  do {
+    int left;
+    int top;
+    int right;
+    int bottom;
+    ASSERT_TRUE(it->BoundingBox(tesseract::RIL_PARA, &left, &top, &right, &bottom));
+    char *paragraph_text = it->GetUTF8Text(tesseract::RIL_PARA);
+
+    ResultIterator paragraph_start(*it);
+    paragraph_start.RestartParagraph();
+    EXPECT_TRUE(paragraph_start.IsAtBeginningOf(tesseract::RIL_PARA));
+    int start_left;
+    int start_top;
+    int start_right;
+    int start_bottom;
+    ASSERT_TRUE(paragraph_start.BoundingBox(tesseract::RIL_PARA, &start_left, &start_top,
+                                            &start_right, &start_bottom));
+    EXPECT_EQ(left, start_left);
+    EXPECT_EQ(top, start_top);
+    EXPECT_EQ(right, start_right);
+    EXPECT_EQ(bottom, start_bottom);
+    char *start_text = paragraph_start.GetUTF8Text(tesseract::RIL_PARA);
+    EXPECT_STREQ(paragraph_text, start_text);
+    delete[] paragraph_text;
+    delete[] start_text;
+  } while (it->Next(tesseract::RIL_WORD));
+  delete it;
+}
+
 // Tests image rebuild on the UNLV page numbered 8087_054.3G.tif. (Dubrovnik)
 TEST_F(ResultIteratorTest, GreyTest) {
   SetImage("8087_054.3G.tif");
@@ -363,6 +400,71 @@ TEST_F(ResultIteratorTest, GreyTest) {
   EXPECT_FALSE(it == nullptr);
   // The images should rebuild almost perfectly.
   VerifyRebuilds(600, 600, 600, 600, 600, it);
+  delete it;
+}
+
+// Tests that higher-level iteration lands at both the logical and physical
+// start of each LTR object, including when constructed from an interior word.
+TEST_F(ResultIteratorTest, IteratorLevelStartsTest) {
+  SetImage("8087_054.3B.tif");
+  char *text = api_.GetUTF8Text();
+  delete[] text;
+
+  const PageIteratorLevel levels[] = {RIL_BLOCK, RIL_PARA, RIL_TEXTLINE};
+  for (const auto level : levels) {
+    ResultIterator *it = api_.GetIterator();
+    ASSERT_NE(nullptr, it);
+    int count = 0;
+    do {
+      EXPECT_TRUE(it->IsAtBeginningOf(level));
+      EXPECT_TRUE(it->PageIterator::IsAtBeginningOf(level));
+      ++count;
+    } while (it->Next(level));
+    EXPECT_GT(count, 1);
+    delete it;
+  }
+
+  ResultIterator *it = api_.GetIterator();
+  ASSERT_NE(nullptr, it);
+  while (it->PageIterator::IsAtBeginningOf(RIL_TEXTLINE)) {
+    ASSERT_TRUE(it->Next(RIL_WORD));
+  }
+  EXPECT_FALSE(it->IsAtBeginningOf(RIL_TEXTLINE));
+  EXPECT_FALSE(it->PageIterator::IsAtBeginningOf(RIL_TEXTLINE));
+
+  ResultIterator *paragraph_start = ResultIterator::StartOfParagraph(*it);
+  ASSERT_NE(nullptr, paragraph_start);
+  EXPECT_TRUE(paragraph_start->IsAtBeginningOf(RIL_PARA));
+  EXPECT_TRUE(paragraph_start->PageIterator::IsAtBeginningOf(RIL_PARA));
+  delete paragraph_start;
+  delete it;
+}
+
+// Tests that RTL iteration remains at logical starts even when those differ
+// from the physical left-to-right starts used by PageIterator.
+TEST_F(ResultIteratorTest, RightToLeftIteratorStartsTest) {
+  SetImage("hebrew.png", "heb", tesseract::OEM_DEFAULT);
+  char *text = api_.GetUTF8Text();
+  ASSERT_NE(nullptr, text);
+  std::string truth(text);
+  delete[] text;
+
+  ResultIterator *it = api_.GetIterator();
+  ASSERT_NE(nullptr, it);
+  ASSERT_FALSE(it->ParagraphIsLtr());
+  int line_count = 0;
+  int logical_only_starts = 0;
+  do {
+    EXPECT_TRUE(it->IsAtBeginningOf(RIL_TEXTLINE));
+    if (!it->PageIterator::IsAtBeginningOf(RIL_TEXTLINE)) {
+      ++logical_only_starts;
+    }
+    ++line_count;
+  } while (it->Next(RIL_TEXTLINE));
+  EXPECT_GT(line_count, 1);
+  EXPECT_GT(logical_only_starts, 0);
+
+  VerifyAllText(truth, it);
   delete it;
 }
 

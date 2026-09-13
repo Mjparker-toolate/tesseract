@@ -21,13 +21,13 @@
 #  include "config_auto.h"
 #endif
 
-#include <allheaders.h>
 #include <cmath>
 #include <ctime>
 #include "boxread.h"
 #include "classify.h"
 #include "errorcounter.h"
 #include "featdefs.h"
+#include "image.h"           // for Image
 #include "mastertrainer.h"
 #include "sampleiterator.h"
 #include "shapeclassifier.h"
@@ -587,7 +587,7 @@ CLUSTERER *MasterTrainer::SetupForClustering(
     int shape_id, int *num_samples) {
   int desc_index = ShortNameToFeatureType(feature_defs, kMicroFeatureType);
   int num_params = feature_defs.FeatureDesc[desc_index]->NumParams;
-  ASSERT_HOST(num_params == (int)MicroFeatureParameter::MFCount);
+  ASSERT_HOST(num_params == static_cast<int>(MicroFeatureParameter::MFCount));
   CLUSTERER *clusterer = MakeClusterer(
       num_params, feature_defs.FeatureDesc[desc_index]->ParamDesc);
 

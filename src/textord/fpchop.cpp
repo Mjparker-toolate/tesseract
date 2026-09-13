@@ -63,8 +63,7 @@ static void join_segments(C_OUTLINE_FRAG *bottom, C_OUTLINE_FRAG *top);
  * Make a ROW from a fixed pitch TO_ROW.
  **********************************************************************/
 ROW *fixed_pitch_words( // find lines
-    TO_ROW *row,        // row to do
-    FCOORD rotation     // for drawing
+    TO_ROW *row         // row to do
 ) {
   bool bol;                // start of line
   uint8_t blanks;          // in front of word
@@ -785,7 +784,7 @@ C_OUTLINE *C_OUTLINE_FRAG::close() { // join pieces
   new_steps = new DIR128[new_stepcount];
   memmove(new_steps, steps, stepcount);
   memset(new_steps + stepcount, fake_step.get_dir(), fake_count);
-  auto *result = new C_OUTLINE(start, new_steps, new_stepcount);
+  auto *result = new C_OUTLINE(start, new_steps, static_cast<int16_t>(new_stepcount));
   delete[] new_steps;
   return result;
 }

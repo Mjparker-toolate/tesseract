@@ -295,6 +295,10 @@ bool WeightMatrix::DeSerialize(bool training, TFile *fp) {
     if (!fp->DeSerialize(&size)) {
       return false;
     }
+    // Reject unreasonably large scale vectors.
+    if (size > 100000000) {
+      return false;
+    }
 #ifdef FAST_FLOAT
     scales_.reserve(size);
     for (auto n = size; n > 0; n--) {
@@ -339,7 +343,8 @@ bool WeightMatrix::DeSerialize(bool training, TFile *fp) {
 
 // As DeSerialize, but reads an old (float) format WeightMatrix for
 // backward compatibility.
-bool WeightMatrix::DeSerializeOld(bool training, TFile *fp) {
+bool WeightMatrix::DeSerializeOld([[maybe_unused]] bool training,
+                                  [[maybe_unused]] TFile *fp) {
 #ifdef FAST_FLOAT
   // Not implemented.
   ASSERT_HOST(!"not implemented");
@@ -427,7 +432,7 @@ void WeightMatrix::VectorDotMatrix(const TFloat *u, TFloat *v) const {
 // Note that (matching MatrixDotVector) v[last][] is missing, presumed 1.0.
 // Runs parallel if requested. Note that u and v must be transposed.
 void WeightMatrix::SumOuterTransposed(const TransposedArray &u, const TransposedArray &v,
-                                      bool in_parallel) {
+                                      [[maybe_unused]] bool in_parallel) {
   assert(!int_mode_);
   int num_outputs = dw_.dim1();
   assert(u.dim1() == num_outputs);
