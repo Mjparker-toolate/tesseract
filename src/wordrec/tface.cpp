@@ -36,14 +36,16 @@ namespace tesseract {
  * init_permute determines whether to initialize the permute functions
  * and Dawg models.
  */
-void Wordrec::program_editup(const std::string &textbase, TessdataManager *init_classifier,
+bool Wordrec::program_editup(const std::string &textbase, TessdataManager *init_classifier,
                              TessdataManager *init_dict) {
   if (!textbase.empty()) {
     imagefile = textbase;
   }
 #ifndef DISABLED_LEGACY_ENGINE
   InitFeatureDefs(&feature_defs_);
-  InitAdaptiveClassifier(init_classifier);
+  if (!InitAdaptiveClassifier(init_classifier)) {
+    return false;
+  }
   if (init_dict) {
     getDict().SetupForLoad(Dict::GlobalDawgCache());
     getDict().Load(lang, init_dict);
@@ -51,6 +53,7 @@ void Wordrec::program_editup(const std::string &textbase, TessdataManager *init_
   }
   pass2_ok_split = chop_ok_split;
 #endif // ndef DISABLED_LEGACY_ENGINE
+  return true;
 }
 
 /**
@@ -59,7 +62,7 @@ void Wordrec::program_editup(const std::string &textbase, TessdataManager *init_
  * Cleanup and exit the recog program.
  */
 int Wordrec::end_recog() {
-  program_editdown(0);
+  program_editdown();
 
   return (0);
 }
@@ -70,7 +73,7 @@ int Wordrec::end_recog() {
  * This function holds any necessary post processing for the Wise Owl
  * program.
  */
-void Wordrec::program_editdown(int32_t elapsed_time) {
+void Wordrec::program_editdown() {
 #ifndef DISABLED_LEGACY_ENGINE
   EndAdaptiveClassifier();
 #endif // ndef DISABLED_LEGACY_ENGINE

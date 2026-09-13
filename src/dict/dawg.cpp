@@ -26,6 +26,7 @@
 #include "helpers.h"
 #include "tprintf.h"
 
+#include <climits>
 #include <memory>
 
 /*----------------------------------------------------------------------
@@ -116,6 +117,15 @@ static void CallWithUTF8(const std::function<void(const char *)> &cb,
   cb(s.c_str());
 }
 
+static constexpr int CeilLog2(unsigned n) {
+  int bits = 0;
+  while (n > 0) {
+    n >>= 1;
+    ++bits;
+  }
+  return bits;
+}
+
 void Dawg::iterate_words(const UNICHARSET &unicharset,
                          const std::function<void(const char *)> &cb) const {
   using namespace std::placeholders; // for _1
@@ -180,7 +190,7 @@ void Dawg::init(int unicharset_size) {
   unicharset_size_ = unicharset_size;
   // Set bit masks. We will use the value unicharset_size_ as a null char, so
   // the actual number of unichars is unicharset_size_ + 1.
-  flag_start_bit_ = ceil(log(unicharset_size_ + 1.0) / log(2.0));
+  flag_start_bit_ = CeilLog2(static_cast<unsigned>(unicharset_size_));
   next_node_start_bit_ = flag_start_bit_ + NUM_FLAG_BITS;
   letter_mask_ = ~(~0ull << flag_start_bit_);
   next_node_mask_ = ~0ull << (flag_start_bit_ + NUM_FLAG_BITS);
@@ -221,7 +231,11 @@ EDGE_REF SquishedDawg::edge_char_of(NODE_REF node, UNICHAR_ID unichar_id,
             (!word_end || end_of_word_from_edge_rec(edges_[edge]))) {
           return (edge);
         }
-      } while (!last_edge(edge++));
+        if (last_edge(edge)) {
+          break;
+        }
+        ++edge;
+      } while (edge < num_edges_);
     }
   }
   return (NO_EDGE); // not found
@@ -234,7 +248,11 @@ int32_t SquishedDawg::num_forward_edges(NODE_REF node) const {
   if (forward_edge(edge)) {
     do {
       num++;
-    } while (!last_edge(edge++));
+      if (last_edge(edge)) {
+        break;
+      }
+      ++edge;
+    } while (edge < num_edges_);
   }
 
   return (num);
@@ -274,7 +292,12 @@ void SquishedDawg::print_node(NODE_REF node, int max_num_edges) const {
       if (edge - node > max_num_edges) {
         return;
       }
-    } while (!last_edge(edge++));
+      if (last_edge(edge)) {
+        ++edge; // Advance past the last forward edge.
+        break;
+      }
+      ++edge;
+    } while (edge < num_edges_);
 
     if (edge < num_edges_ && edge_occupied(edge) && backward_edge(edge)) {
       do {
@@ -290,7 +313,11 @@ void SquishedDawg::print_node(NODE_REF node, int max_num_edges) const {
         if (edge - node > MAX_NODE_EDGES_DISPLAY) {
           return;
         }
-      } while (!last_edge(edge++));
+        if (last_edge(edge)) {
+          break;
+        }
+        ++edge;
+      } while (edge < num_edges_);
     }
   } else {
     tprintf(REFFORMAT " : no edges in this node\n", node);
@@ -326,22 +353,88 @@ bool SquishedDawg::read_squished_dawg(TFile *file) {
     return false;
   }
 
-  int32_t unicharset_size;
+  uint32_t unicharset_size;
   if (!file->DeSerialize(&unicharset_size)) {
+    return false;
+  }
+  // Dawg::init takes int; reject values that would overflow.
+  if (unicharset_size == 0 || unicharset_size > INT_MAX) {
+    tprintf("Bad dawg unicharset_size %u\n", unicharset_size);
     return false;
   }
   if (!file->DeSerialize(&num_edges_)) {
     return false;
   }
-  ASSERT_HOST(num_edges_ > 0); // DAWG should not be empty
-  Dawg::init(unicharset_size);
-
-  edges_ = new EDGE_RECORD[num_edges_];
-  if (!file->DeSerialize(&edges_[0], num_edges_)) {
+  if (num_edges_ == 0) {
+    tprintf("Empty dawg: num_edges is 0\n");
     return false;
   }
+  // Hard upper bound to prevent resource-exhaustion DoS.
+  if (num_edges_ > 50000000) {
+    tprintf("Dawg num_edges %u exceeds hard limit\n", num_edges_);
+    return false;
+  }
+  // Reject if the declared edge count exceeds the remaining component bytes.
+  if (num_edges_ > file->RemainingBytes() / sizeof(EDGE_RECORD)) {
+    tprintf("Dawg num_edges %u exceeds remaining data\n", num_edges_);
+    return false;
+  }
+  Dawg::init(unicharset_size);
+
+  delete[] edges_;
+  edges_ = new EDGE_RECORD[num_edges_];
+  if (!file->DeSerialize(&edges_[0], num_edges_)) {
+    delete[] edges_;
+    edges_ = nullptr;
+    num_edges_ = 0;
+    return false;
+  }
+  // Validate the loaded edge structure: check that next_node values are in
+  // bounds and that forward edge runs are properly terminated.
+  for (uint32_t i = 0; i < num_edges_; ++i) {
+    if (edges_[i] == next_node_mask_) {
+      continue; // Empty slot.
+    }
+    if (forward_edge(i)) {
+      // Validate the entire forward-edge run and skip to its terminator.
+      bool terminated = false;
+      uint32_t j = i;
+      do {
+        NODE_REF nj = next_node_from_edge_rec(edges_[j]);
+        if (nj != 0 && static_cast<uint32_t>(nj) >= num_edges_) {
+          tprintf("Dawg edge %u has out-of-bounds next_node\n", j);
+          delete[] edges_;
+          edges_ = nullptr;
+          num_edges_ = 0;
+          return false;
+        }
+        if (last_edge(j)) {
+          terminated = true;
+          i = j; // Advance outer loop past the terminator.
+          break;
+        }
+        ++j;
+      } while (j < num_edges_);
+      if (!terminated) {
+        tprintf("Dawg forward edge run starting at %u is not terminated\n", i);
+        delete[] edges_;
+        edges_ = nullptr;
+        num_edges_ = 0;
+        return false;
+      }
+    } else {
+      NODE_REF next = next_node_from_edge_rec(edges_[i]);
+      if (next != 0 && static_cast<uint32_t>(next) >= num_edges_) {
+        tprintf("Dawg edge %u has out-of-bounds next_node\n", i);
+        delete[] edges_;
+        edges_ = nullptr;
+        num_edges_ = 0;
+        return false;
+      }
+    }
+  }
   if (debug_level_ > 2) {
-    tprintf("type: %d lang: %s perm: %d unicharset_size: %d num_edges: %d\n",
+    tprintf("type: %d lang: %s perm: %d unicharset_size: %d num_edges: %" PRIu32 "\n",
             type_, lang_.c_str(), perm_, unicharset_size_, num_edges_);
     for (EDGE_REF edge = 0; edge < num_edges_; ++edge) {
       print_edge(edge);
@@ -378,8 +471,11 @@ std::unique_ptr<EDGE_REF[]> SquishedDawg::build_node_map(
         break;
       }
       if (backward_edge(edge)) {
-        while (!last_edge(edge++)) {
-          ;
+        while (edge < num_edges_ && !last_edge(edge)) {
+          ++edge;
+        }
+        if (edge < num_edges_) {
+          ++edge; // Skip past the last backward edge.
         }
       }
       edge--;

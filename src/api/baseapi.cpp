@@ -35,6 +35,7 @@
 #include "errcode.h" // for ASSERT_HOST
 #include "helpers.h" // for IntCastRounded, chomp_string, copy_string
 #include "host.h"    // for MAX_PATH
+#include "image.h"   // for Image, Leptonica (pixDestroy, boxCreate, ...)
 #include "imageio.h" // for IFF_TIFF_G4, IFF_TIFF, IFF_TIFF_G3, ...
 #ifndef DISABLED_LEGACY_ENGINE
 #  include "intfx.h" // for INT_FX_RESULT_STRUCT
@@ -71,9 +72,9 @@
 #include <memory>   // for std::unique_ptr
 #include <set>      // for std::pair
 #include <sstream>  // for std::stringstream
+#include <string_view>
 #include <vector>   // for std::vector
 
-#include <allheaders.h> // for pixDestroy, boxCreate, boxaAddBox, box...
 #ifdef HAVE_LIBCURL
 #  include <curl/curl.h>
 #endif
@@ -125,18 +126,21 @@ static STRING_VAR(classify_font_name, kUnknownFontName,
 // /path/to/dir/[lang].[fontname].exp[num]
 // The [lang], [fontname] and [num] fields should not have '.' characters.
 // If the global parameter classify_font_name is set, its value is used instead.
-static void ExtractFontName(const char* filename, std::string* fontname) {
+static void ExtractFontName(std::string_view filename, std::string* fontname) {
   *fontname = classify_font_name;
   if (*fontname == kUnknownFontName) {
     // filename is expected to be of the form [lang].[fontname].exp[num]
     // The [lang], [fontname] and [num] fields should not have '.' characters.
-    const char *basename = strrchr(filename, '/');
-    const char *firstdot = strchr(basename ? basename : filename, '.');
-    const char *lastdot  = strrchr(filename, '.');
-    if (firstdot != lastdot && firstdot != nullptr && lastdot != nullptr) {
+    auto basename_pos = filename.find_last_of('/');
+    auto view = (basename_pos != std::string_view::npos)
+                    ? filename.substr(basename_pos + 1)
+                    : filename;
+    auto firstdot = view.find_first_of('.');
+    auto lastdot = view.find_last_of('.');
+    if (firstdot != lastdot && firstdot != std::string_view::npos &&
+        lastdot != std::string_view::npos) {
       ++firstdot;
-      *fontname = firstdot;
-      fontname->resize(lastdot - firstdot);
+      *fontname = view.substr(firstdot, lastdot - firstdot);
     }
   }
 }
@@ -225,7 +229,7 @@ bool TessBaseAPI::GetIntVariable(const char *name, int *value) const {
   if (p == nullptr) {
     return false;
   }
-  *value = (int32_t)(*p);
+  *value = static_cast<int32_t>(*p);
   return true;
 }
 
@@ -251,7 +255,7 @@ bool TessBaseAPI::GetDoubleVariable(const char *name, double *value) const {
   if (p == nullptr) {
     return false;
   }
-  *value = (double)(*p);
+  *value = static_cast<double>(*p);
   return true;
 }
 
@@ -527,7 +531,7 @@ void TessBaseAPI::SetImage(Pix *pix) {
       // remove alpha channel from png
       Pix *p1 = pixRemoveAlpha(pix);
       pixSetSpp(p1, 3);
-      (void)pixCopy(pix, p1);
+      static_cast<void>(pixCopy(pix, p1));
       pixDestroy(&p1);
     }
     thresholder_->SetImage(pix);
@@ -742,6 +746,7 @@ PageIterator *TessBaseAPI::AnalyseLayout(bool merge_similar_words) {
     if (block_list_->empty()) {
       return nullptr; // The page was empty.
     }
+    delete page_res_;
     page_res_ = new PAGE_RES(merge_similar_words, block_list_, nullptr);
     DetectParagraphs(false);
     return new PageIterator(page_res_, tesseract_, thresholder_->GetScaleFactor(),
@@ -813,12 +818,12 @@ int TessBaseAPI::Recognize(ETEXT_DESC *monitor) {
 #ifndef DISABLED_LEGACY_ENGINE
   } else if (tesseract_->tessedit_train_from_boxes) {
     std::string fontname;
-    ExtractFontName(output_file_.c_str(), &fontname);
+    ExtractFontName(output_file_, &fontname);
     tesseract_->ApplyBoxTraining(fontname, page_res_);
   } else if (tesseract_->tessedit_ambigs_training) {
     FILE *training_output_file = tesseract_->init_recog_training(input_file_.c_str());
     // OCR the page segmented into words by tesseract.
-    tesseract_->recog_training_segmented(input_file_.c_str(), page_res_, monitor,
+    tesseract_->recog_training_segmented(input_file_.c_str(), page_res_,
                                          training_output_file);
     fclose(training_output_file);
 #endif // ndef DISABLED_LEGACY_ENGINE
@@ -885,7 +890,7 @@ bool TessBaseAPI::ProcessPagesFileList(FILE *flist, std::string *buf, const char
     std::string line;
     for (const auto ch : *buf) {
       if (ch == '\n') {
-        lines.push_back(line);
+        lines.push_back(std::move(line));
         line.clear();
       } else {
         line.push_back(ch);
@@ -893,7 +898,7 @@ bool TessBaseAPI::ProcessPagesFileList(FILE *flist, std::string *buf, const char
     }
     if (!line.empty()) {
       // Add last line without terminating LF.
-      lines.push_back(line);
+      lines.push_back(std::move(line));
     }
     if (lines.empty()) {
       return false;
@@ -2135,7 +2140,7 @@ int TessBaseAPI::FindLines() {
 
   // If Devanagari is being recognized, we use different images for page seg
   // and for OCR.
-  tesseract_->PrepareForTessOCR(block_list_, osd_tess, &osr);
+  tesseract_->PrepareForTessOCR(block_list_);
   return 0;
 }
 

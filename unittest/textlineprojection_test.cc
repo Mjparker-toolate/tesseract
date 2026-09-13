@@ -9,7 +9,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <allheaders.h>
 #include <string> // for std::string
 
 #include "include_gunit.h"
@@ -17,6 +16,7 @@
 #include <tesseract/baseapi.h>
 #include <tesseract/osdetect.h>
 #include "colfind.h"
+#include "image.h"            // for Image
 #include "log.h" // for LOG
 #include "mutableiterator.h"
 #include "pageres.h"
@@ -100,7 +100,7 @@ protected:
     denorm_ = finder_->denorm();
     TO_BLOCK_LIST to_blocks;
     BLOBNBOX_LIST diacritic_blobs;
-    EXPECT_GE(finder_->FindBlocks(tesseract::PSM_AUTO, nullptr, 1, to_block, photomask_pix, nullptr,
+    EXPECT_GE(finder_->FindBlocks(tesseract::PSM_AUTO, to_block, photomask_pix, nullptr,
                                   nullptr, nullptr, &found_blocks, &diacritic_blobs, &to_blocks),
               0);
     projection_ = finder_->projection();

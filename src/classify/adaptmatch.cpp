@@ -75,20 +75,20 @@ namespace tesseract {
 // TODO: The parameter classify_enable_adaptive_matcher can cause
 // a segmentation fault if it is set to false (issue #256),
 // so override it here.
-#define CLASSIFY_ENABLE_ADAPTIVE_MATCHER_OVERRIDE true
+constexpr bool CLASSIFY_ENABLE_ADAPTIVE_MATCHER_OVERRIDE = true;
 
-#define ADAPT_TEMPLATE_SUFFIX ".a"
+constexpr const char *ADAPT_TEMPLATE_SUFFIX = ".a";
 
-#define MAX_MATCHES 10
-#define UNLIKELY_NUM_FEAT 200
-#define NO_DEBUG 0
-#define MAX_ADAPTABLE_WERD_SIZE 40
+constexpr int MAX_MATCHES = 10;
+constexpr int UNLIKELY_NUM_FEAT = 200;
+constexpr int NO_DEBUG = 0;
+constexpr int MAX_ADAPTABLE_WERD_SIZE = 40;
 
-#define ADAPTABLE_WERD_ADJUSTMENT (0.05)
+constexpr double ADAPTABLE_WERD_ADJUSTMENT = 0.05;
 
-#define Y_DIM_OFFSET (Y_SHIFT - BASELINE_Y_SHIFT)
+constexpr double Y_DIM_OFFSET = Y_SHIFT - BASELINE_Y_SHIFT;
 
-#define WORST_POSSIBLE_RATING (0.0f)
+constexpr float WORST_POSSIBLE_RATING = 0.0f;
 
 struct ADAPT_RESULTS {
   int32_t BlobLength;
@@ -421,7 +421,7 @@ void Classify::LearnPieces(const char *fontname, int start, int length, float th
     tess_bn_matching.set_value(false);         // turn it off
     tess_cn_matching.set_value(false);
     DENORM bl_denorm, cn_denorm;
-    INT_FX_RESULT_STRUCT fx_info;
+    INT_FX_RESULT_STRUCT fx_info{};
     SetupBLCNDenorms(*rotated_blob, classify_nonlinear_norm, &bl_denorm, &cn_denorm, &fx_info);
     LearnBlob(fontname, rotated_blob, cn_denorm, fx_info, correct_text);
   } else if (unicharset.contains_unichar(correct_text)) {
@@ -524,9 +524,9 @@ void Classify::EndAdaptiveClassifier() {
  *      classify_use_pre_adapted_templates
  *                            enables use of pre-adapted templates
  */
-void Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
+bool Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
   if (!CLASSIFY_ENABLE_ADAPTIVE_MATCHER_OVERRIDE) {
-    return;
+    return true;
   }
   if (AllProtosOn != nullptr) {
     EndAdaptiveClassifier(); // Don't leak with multiple inits.
@@ -538,6 +538,11 @@ void Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
     TFile fp;
     ASSERT_HOST(mgr->GetComponent(TESSDATA_INTTEMP, &fp));
     PreTrainedTemplates = ReadIntTemplates(&fp);
+    if (PreTrainedTemplates == nullptr) {
+      tprintf("Error: invalid inttemp component in traineddata, "
+              "cannot initialize the legacy engine.\n");
+      return false;
+    }
 
     if (mgr->GetComponent(TESSDATA_SHAPE_TABLE, &fp)) {
       shape_table_ = new ShapeTable(unicharset);
@@ -580,17 +585,23 @@ void Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
       tprintf("\nReading pre-adapted templates from %s ...\n", Filename.c_str());
       fflush(stdout);
       AdaptedTemplates = ReadAdaptedTemplates(&fp);
-      tprintf("\n");
-      PrintAdaptedTemplates(stdout, AdaptedTemplates);
+      if (AdaptedTemplates == nullptr) {
+        tprintf("Error: invalid pre-adapted templates in %s, ignoring.\n", Filename.c_str());
+        AdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+      } else {
+        tprintf("\n");
+        PrintAdaptedTemplates(stdout, AdaptedTemplates);
 
-      for (unsigned i = 0; i < AdaptedTemplates->Templates->NumClasses; i++) {
-        BaselineCutoffs[i] = CharNormCutoffs[i];
+        for (unsigned i = 0; i < AdaptedTemplates->Templates->NumClasses; i++) {
+          BaselineCutoffs[i] = CharNormCutoffs[i];
+        }
       }
     }
   } else {
     delete AdaptedTemplates;
     AdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
   }
+  return true;
 } /* InitAdaptiveClassifier */
 
 void Classify::ResetAdaptiveClassifierInternal() {
@@ -714,6 +725,9 @@ void Classify::InitAdaptedClass(TBLOB *Blob, CLASS_ID ClassId, int FontinfoId, A
   for (Fid = 0; Fid < Features->NumFeatures; Fid++) {
     Pid = AddIntProto(IClass);
     assert(Pid != NO_PROTO);
+    if (Pid == NO_PROTO) {
+      break;
+    }
 
     Feature = Features->Features[Fid];
     auto TempProto = new TEMP_PROTO_STRUCT;
@@ -775,7 +789,7 @@ void Classify::InitAdaptedClass(TBLOB *Blob, CLASS_ID ClassId, int FontinfoId, A
  * @return Number of pico-features returned (0 if
  * an error occurred)
  */
-int Classify::GetAdaptiveFeatures(TBLOB *Blob, INT_FEATURE_ARRAY IntFeatures,
+int Classify::GetAdaptiveFeatures(TBLOB *Blob, INT_FEATURE_ARRAY &IntFeatures,
                                   FEATURE_SET *FloatFeatures) {
   FEATURE_SET Features;
   int NumFeatures;
@@ -877,7 +891,7 @@ void Classify::AdaptToChar(TBLOB *Blob, CLASS_ID ClassId, int FontinfoId, float 
         reset_bit(MatchingFontConfigs, cfg);
       }
     }
-    im_.Match(IClass, AllProtosOn, MatchingFontConfigs, NumFeatures, IntFeatures, &int_result,
+    im_.Match(IClass, AllProtosOn, MatchingFontConfigs, NumFeatures, IntFeatures.data(), &int_result,
               classify_adapt_feature_threshold, NO_DEBUG, matcher_debug_separate_windows);
     FreeBitVector(MatchingFontConfigs);
 
@@ -1036,7 +1050,7 @@ void Classify::AddNewResult(const UnicharRating &new_result, ADAPT_RESULTS *resu
  */
 void Classify::AmbigClassifier(const std::vector<INT_FEATURE_STRUCT> &int_features,
                                const INT_FX_RESULT_STRUCT &fx_info, const TBLOB *blob,
-                               INT_TEMPLATES_STRUCT *templates, ADAPT_CLASS_STRUCT **classes,
+                               INT_TEMPLATES_STRUCT *templates,
                                UNICHAR_ID *ambiguities, ADAPT_RESULTS *results) {
   if (int_features.empty()) {
     return;
@@ -1240,8 +1254,8 @@ UNICHAR_ID *Classify::BaselineClassifier(TBLOB *Blob,
   }
 
   MasterMatcher(Templates->Templates, int_features.size(), &int_features[0], CharNormArray,
-                Templates->Class, matcher_debug_flags, 0, Blob->bounding_box(), Results->CPResults,
-                Results);
+                Templates->Class.data(), matcher_debug_flags, 0, Blob->bounding_box(),
+                Results->CPResults, Results);
 
   delete[] CharNormArray;
   CLASS_ID ClassId = Results->best_unichar_id;
@@ -1499,7 +1513,7 @@ void Classify::DoAdaptiveMatch(TBLOB *Blob, ADAPT_RESULTS *Results) {
         Results->match.empty()) {
       CharNormClassifier(Blob, *sample, Results);
     } else if (Ambiguities && *Ambiguities >= 0 && !tess_bn_matching) {
-      AmbigClassifier(bl_features, fx_info, Blob, PreTrainedTemplates, AdaptedTemplates->Class,
+      AmbigClassifier(bl_features, fx_info, Blob, PreTrainedTemplates,
                       Ambiguities, Results);
     }
   }
@@ -1667,7 +1681,7 @@ void Classify::ComputeCharNormArrays(FEATURE_STRUCT *norm_feature, INT_TEMPLATES
  * case of error.
  */
 int Classify::MakeNewTemporaryConfig(ADAPT_TEMPLATES_STRUCT *Templates, CLASS_ID ClassId, int FontinfoId,
-                                     int NumFeatures, INT_FEATURE_ARRAY Features,
+                                     int NumFeatures, const INT_FEATURE_ARRAY &Features,
                                      FEATURE_SET FloatFeatures) {
   INT_CLASS_STRUCT *IClass;
   ADAPT_CLASS_STRUCT *Class;
@@ -1798,6 +1812,21 @@ PROTO_ID Classify::MakeNewTempProtos(FEATURE_SET Features, int NumBadFeat, FEATU
     Y2 = F2->Params[PicoFeatY];
     A2 = F2->Params[PicoFeatDir];
 
+    // The angle of the new proto is the circular midpoint of the angles
+    // of the first and last feature, so compute it along the shorter arc.
+    float delta = A2 - A1;
+    if (delta > 0.5f) {
+      delta -= 1.0f;
+    } else if (delta < -0.5f) {
+      delta += 1.0f;
+    }
+    float Angle = A1 + delta / 2.0f;
+    if (Angle < 0.0f) {
+      Angle += 1.0f;
+    } else if (Angle >= 1.0f) {
+      Angle -= 1.0f;
+    }
+
     Pid = AddIntProto(IClass);
     if (Pid == NO_PROTO) {
       return (NO_PROTO);
@@ -1810,7 +1839,7 @@ PROTO_ID Classify::MakeNewTempProtos(FEATURE_SET Features, int NumBadFeat, FEATU
    ConvertProto assumes that the Y dimension varies from -0.5 to 0.5
    instead of the -0.25 to 0.75 used in baseline normalization */
     Proto->Length = SegmentLength;
-    Proto->Angle = A1;
+    Proto->Angle = Angle;
     Proto->X = (X1 + X2) / 2;
     Proto->Y = (Y1 + Y2) / 2 - Y_DIM_OFFSET;
     FillABC(Proto);

@@ -43,7 +43,7 @@ This project **does not include a GUI application**. If you need one, please see
 For local AI-powered workflows combining OCR with large language models, see [LM Studio](https://lmstudio.ai/download) (desktop) or run `bash setup-ollama.sh` for a headless server setup using [ollama](https://ollama.com).
 
 Tesseract **can be trained to recognize other languages**.
-See [Tesseract Training](https://tesseract-ocr.github.io/tessdoc/Training-Tesseract.html) for more information.
+See [Tesseract Training](https://tesseract-ocr.github.io/tessdoc/tess5/TrainingTesseract-5.html) for more information.
 
 ## Brief history
 
@@ -116,8 +116,8 @@ Please report an issue only for a **bug**, not for asking questions.
 
 **NOTE**: This software depends on other packages that may be licensed under different open source licenses.
 
-Tesseract uses [Leptonica library](http://leptonica.com/) which essentially
-uses a [BSD 2-clause license](http://leptonica.com/about-the-license.html).
+Tesseract uses the [Leptonica library](http://www.leptonica.org/) which essentially
+uses a [BSD 2-clause license](http://www.leptonica.org/about-the-license.html).
 
 ## Dependencies
 
