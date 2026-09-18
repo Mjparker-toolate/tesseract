@@ -42,6 +42,8 @@ This project **does not include a GUI application**. If you need one, please see
 
 For local AI-powered workflows combining OCR with large language models, see [LM Studio](https://lmstudio.ai/download) (desktop) or run `bash setup-ollama.sh` for a headless server setup using [ollama](https://ollama.com).
 
+To set up a development machine with everything the CI workflows need plus the AI agent CLIs used with this repository (Claude Code, Codex, OpenClaw, Hermes Agent, GitHub Copilot CLI, Cursor CLI, Ollama), run `bash setup-ai-tools.sh` (`--build-deps` or `--ai-tools` to do only one half). Claude Code on the web runs the build-dependency half automatically via `.claude/hooks/session-start.sh`.
+
 Tesseract **can be trained to recognize other languages**.
 See [Tesseract Training](https://tesseract-ocr.github.io/tessdoc/Training-Tesseract.html) for more information.
 
