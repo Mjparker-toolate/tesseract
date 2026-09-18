@@ -210,6 +210,10 @@ ensure_npm_prefix_writable() {
   fi
   export npm_config_prefix="$HOME/.local"
   mkdir -p "$HOME/.local/bin" "$HOME/.local/lib"
+  # Put the redirected bin dir on PATH for the rest of this process so the
+  # `have`/`ver` checks find freshly installed CLIs — otherwise every tool
+  # looks missing and gets reinstalled on each run, and reports a blank version.
+  case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
   echo "npm global prefix $prefix is not writable; using $npm_config_prefix (binaries in ~/.local/bin)"
 }
 
@@ -294,7 +298,14 @@ install_hermes() {
     curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
   else
     # PyPI package published by Nous Research; requires Python >=3.11,<3.14.
-    if ! have uv; then ensure_pip; python3 -m pip install -q uv || python3 -m pip install -q --user uv; fi
+    if ! have uv; then
+      ensure_pip
+      # Distro-managed Pythons (PEP 668) reject plain and --user installs; the
+      # override is the last resort so a blocked hermes host doesn't abort the run.
+      python3 -m pip install -q uv \
+        || python3 -m pip install -q --user uv \
+        || python3 -m pip install -q --break-system-packages uv
+    fi
     uv tool install hermes-agent --python 3.11 || uv tool install hermes-agent
   fi
   echo "installed: $(ver hermes --version || ver "$HOME/.local/bin/hermes" --version)"
@@ -311,15 +322,19 @@ install_cursor() {
   fi
 }
 
-# Installs only the ollama CLI. Starting the server and pulling a model is a
-# separate, explicit step: `bash setup-ollama.sh [model]`.
+# Installs ollama via the official installer. It does NOT pull any model. Note
+# that on a systemd host the vendor installer also registers and starts an
+# `ollama` service listening on 127.0.0.1:11434 (localhost only); pulling a
+# model and (re)starting a server yourself is a separate step: setup-ollama.sh.
 install_ollama() {
   log "Ollama"
   if have ollama; then echo "already installed: $(ver ollama --version)"; return; fi
   if reachable https://ollama.com/install.sh; then
     curl -fsSL https://ollama.com/install.sh | sh
     echo "installed: $(ver ollama --version)"
-    echo "to start a server and pull a model: bash setup-ollama.sh [model]"
+    echo "note: on systemd hosts the installer starts an ollama service on 127.0.0.1:11434"
+    echo "      (disable with: sudo systemctl disable --now ollama); no model was pulled."
+    echo "to pull a model and run a server: bash setup-ollama.sh [model]"
   else
     echo "ollama.com not reachable from here; run 'curl -fsSL https://ollama.com/install.sh | sh' on a networked host." >&2
   fi
