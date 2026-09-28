@@ -42,7 +42,7 @@ Do **not** rely on the `-- Build tests [BUILD_TESTS]: ON` banner to detect this.
 - configure output contains a `-- Enabled tests: ...` line (emitted from `unittest/CMakeLists.txt`, so it appears only when the subdirectory was actually added); and
 - `ctest -N` reports a **nonzero** `Total Tests`.
 
-Expect 59 registered tests in the default configuration here (62 test sources, minus the three `PANGO_TESTS`). The number is configuration-dependent — `BUILD_TRAINING_TOOLS=OFF` and `DISABLED_LEGACY_ENGINE=ON` each drop more — so assert "nonzero and stable across runs" rather than hard-coding a count.
+The number of registered tests is configuration-dependent — `BUILD_TRAINING_TOOLS=OFF` and `DISABLED_LEGACY_ENGINE=ON` each drop some, and upstream merges add more — so assert "nonzero and stable across runs" rather than hard-coding a count.
 
 ## Reporting
 

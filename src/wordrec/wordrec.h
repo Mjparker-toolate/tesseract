@@ -50,9 +50,9 @@ public:
   virtual ~Wordrec() = default;
 
   // tface.cpp
-  void program_editup(const std::string &textbase, TessdataManager *init_classifier,
+  bool program_editup(const std::string &textbase, TessdataManager *init_classifier,
                       TessdataManager *init_dict);
-  void program_editdown(int32_t elapsed_time);
+  void program_editdown();
   int end_recog();
   int dict_word(const WERD_CHOICE &word);
 
@@ -243,10 +243,10 @@ public:
   }
 
   // tface.cpp
-  void program_editup(const std::string &textbase, TessdataManager *init_classifier,
+  bool program_editup(const std::string &textbase, TessdataManager *init_classifier,
                       TessdataManager *init_dict);
   void cc_recog(WERD_RES *word);
-  void program_editdown(int32_t elapsed_time);
+  void program_editdown();
   void set_pass1();
   void set_pass2();
   int end_recog();
