@@ -25,8 +25,6 @@
 #include "tesseractclass.h"
 #include "unicharset.h"
 
-#include <allheaders.h>
-
 #include <set>
 #include <vector>
 
@@ -43,7 +41,7 @@ ResultIterator::ResultIterator(const LTRResultIterator &resit) : LTRResultIterat
   auto *p = ParamUtils::FindParam<BoolParam>(
       "preserve_interword_spaces", GlobalParams()->bool_params, tesseract_->params()->bool_params);
   if (p != nullptr) {
-    preserve_interword_spaces_ = (bool)(*p);
+    preserve_interword_spaces_ = static_cast<bool>(*p);
   }
 
   current_paragraph_is_ltr_ = CurrentParagraphIsLtr();
@@ -63,7 +61,9 @@ bool ResultIterator::CurrentParagraphIsLtr() const {
     return true; // doesn't matter.
   }
   LTRResultIterator it(*this);
-  it.RestartParagraph();
+  if (!it.PageIterator::IsAtBeginningOf(RIL_PARA)) {
+    it.RestartParagraph();
+  }
   // Try to figure out the ltr-ness of the paragraph.  The rules below
   // make more sense in the context of a difficult paragraph example.
   // Here we denote {ltr characters, RTL CHARACTERS}:
@@ -271,7 +271,9 @@ void ResultIterator::CalculateTextlineOrder(bool paragraph_is_ltr, const LTRResu
 
   // A LTRResultIterator goes strictly left-to-right word order.
   LTRResultIterator ltr_it(resit);
-  ltr_it.RestartRow();
+  if (!ltr_it.PageIterator::IsAtBeginningOf(RIL_TEXTLINE)) {
+    ltr_it.RestartRow();
+  }
   if (ltr_it.Empty(RIL_WORD)) {
     return;
   }
@@ -448,7 +450,9 @@ void ResultIterator::AppendSuffixMarks(std::string *text) const {
 
 void ResultIterator::MoveToLogicalStartOfTextline() {
   std::vector<int> word_indices;
-  RestartRow();
+  if (!PageIterator::IsAtBeginningOf(RIL_TEXTLINE)) {
+    RestartRow();
+  }
   CalculateTextlineOrder(current_paragraph_is_ltr_, dynamic_cast<const LTRResultIterator &>(*this),
                          &word_indices);
   unsigned i = 0;
@@ -491,7 +495,7 @@ bool ResultIterator::Next(PageIteratorLevel level) {
       if (!PageIterator::Next(level)) {
         return false;
       }
-      if (IsWithinFirstTextlineOfParagraph()) {
+      if (PageIterator::IsAtBeginningOf(RIL_PARA)) {
         // if we've advanced to a new paragraph,
         // recalculate current_paragraph_is_ltr_
         current_paragraph_is_ltr_ = CurrentParagraphIsLtr();
@@ -781,7 +785,7 @@ bool ResultIterator::BidiDebug(int min_level) const {
   auto *p = ParamUtils::FindParam<IntParam>("bidi_debug", GlobalParams()->int_params,
                                             tesseract_->params()->int_params);
   if (p != nullptr) {
-    debug_level = (int32_t)(*p);
+    debug_level = static_cast<int32_t>(*p);
   }
   return debug_level >= min_level;
 }
