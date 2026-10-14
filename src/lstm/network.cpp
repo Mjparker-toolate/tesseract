@@ -26,9 +26,9 @@
 
 // This base class needs to know about all its sub-classes because of the
 // factory deserializing method: CreateFromFile.
-#include <allheaders.h>
 #include "convolve.h"
 #include "fullyconnected.h"
+#include "image.h"          // for Image
 #include "input.h"
 #include "lstm.h"
 #include "maxpool.h"
@@ -244,6 +244,12 @@ Network *Network::CreateFromFile(TFile *fp) {
     return nullptr;
   }
   if (!fp->DeSerialize(name)) {
+    return nullptr;
+  }
+
+  if (ni < 0 || no < 0 || num_weights < 0) {
+    tprintf("Error: invalid network layer parameters: type=%d ni=%d no=%d num_weights=%d\n", type,
+            ni, no, num_weights);
     return nullptr;
   }
 
