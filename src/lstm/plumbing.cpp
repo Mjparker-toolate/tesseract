@@ -18,6 +18,8 @@
 
 #include "plumbing.h"
 
+#include <utility> // for std::move
+
 namespace tesseract {
 
 // ni_ and no_ will be set by AddToStack.
@@ -152,7 +154,7 @@ void Plumbing::EnumerateLayers(const std::string *prefix, std::vector<std::strin
       auto *plumbing = static_cast<Plumbing *>(stack_[i]);
       plumbing->EnumerateLayers(&layer_name, layers);
     } else {
-      layers.push_back(layer_name);
+      layers.push_back(std::move(layer_name));
     }
   }
 }
@@ -220,6 +222,16 @@ bool Plumbing::DeSerialize(TFile *fp) {
   no_ = 0; // We will be modifying this as we AddToStack.
   uint32_t size;
   if (!fp->DeSerialize(&size)) {
+    return false;
+  }
+  // Reject unreasonably large network stacks.
+  if (size > 10000) {
+    return false;
+  }
+  // Reject empty stacks: XScaleFactor, CacheXScaleFactor and other methods
+  // unconditionally dereference stack_[0] during network initialization.
+  // A Series needs at least two networks (see Series::Forward).
+  if (size == 0 || (type() == NT_SERIES && size == 1)) {
     return false;
   }
   for (uint32_t i = 0; i < size; ++i) {

@@ -15,6 +15,7 @@
 
 #include "errcode.h" // for ASSERT_HOST
 #include "helpers.h" // for copy_string
+#include "image.h"   // for Leptonica (ptaGetCount, ...)
 #include "tprintf.h" // for tprintf
 
 #include <tesseract/baseapi.h>
@@ -27,7 +28,6 @@
 #include <sstream> // for std::stringstream
 #include <unordered_set>
 
-#include <allheaders.h>
 #if (LIBLEPT_MAJOR_VERSION == 1 && LIBLEPT_MINOR_VERSION >= 83) || \
     LIBLEPT_MAJOR_VERSION > 1
 #  include <array_internal.h>
@@ -705,7 +705,7 @@ char *TessBaseAPI::GetPAGEText(int page_number) {
 /// Make an XML-formatted string with PAGE markup from the internal
 /// data structures.
 ///
-char *TessBaseAPI::GetPAGEText(ETEXT_DESC *monitor, int page_number) {
+char *TessBaseAPI::GetPAGEText(ETEXT_DESC *monitor, int /*page_number*/) {
   if (tesseract_ == nullptr ||
       (page_res_ == nullptr && Recognize(monitor) < 0)) {
     return nullptr;

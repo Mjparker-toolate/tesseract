@@ -145,11 +145,16 @@ bool read_info(TFile *f, FontInfo *fi) {
   if (!f->DeSerialize(&size)) {
     return false;
   }
-  char *font_name = new char[size + 1];
-  fi->name = font_name;
-  if (!f->DeSerialize(font_name, size)) {
+  // Reject unreasonably large font names to prevent overflow in size + 1.
+  if (size > 100000) {
     return false;
   }
+  char *font_name = new char[size + 1];
+  if (!f->DeSerialize(font_name, size)) {
+    delete[] font_name;
+    return false;
+  }
+  fi->name = font_name;
   font_name[size] = '\0';
   return f->DeSerialize(&fi->properties);
 }
@@ -161,16 +166,20 @@ bool write_info(FILE *f, const FontInfo &fi) {
 }
 
 bool read_spacing_info(TFile *f, FontInfo *fi) {
-  int32_t vec_size, kern_size;
+  uint32_t vec_size;
+  int32_t kern_size;
   if (!f->DeSerialize(&vec_size)) {
     return false;
   }
-  ASSERT_HOST(vec_size >= 0);
   if (vec_size == 0) {
     return true;
   }
+  // Reject unreasonably large spacing vectors.
+  if (vec_size > 1000000) {
+    return false;
+  }
   fi->init_spacing(vec_size);
-  for (int i = 0; i < vec_size; ++i) {
+  for (uint32_t i = 0; i < vec_size; ++i) {
     auto *fs = new FontSpacingInfo();
     if (!f->DeSerialize(&fs->x_gap_before) || !f->DeSerialize(&fs->x_gap_after) ||
         !f->DeSerialize(&kern_size)) {

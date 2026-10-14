@@ -75,6 +75,15 @@ public:
       : array_(nullptr), empty_(static_cast<T>(0)), dim1_(0), dim2_(0), size_allocated_(0) {
     *this = src;
   }
+  GENERIC_2D_ARRAY(GENERIC_2D_ARRAY<T> &&src) noexcept
+      : array_(src.array_), empty_(src.empty_), dim1_(src.dim1_), dim2_(src.dim2_),
+        size_allocated_(src.size_allocated_) {
+    src.array_ = nullptr;
+    src.empty_ = static_cast<T>(0);
+    src.dim1_ = 0;
+    src.dim2_ = 0;
+    src.size_allocated_ = 0;
+  }
   virtual ~GENERIC_2D_ARRAY() {
     delete[] array_;
   }
@@ -84,6 +93,21 @@ public:
     int size = num_elements();
     if (size > 0) {
       memcpy(array_, src.array_, size * sizeof(array_[0]));
+    }
+  }
+  void operator=(GENERIC_2D_ARRAY<T> &&src) noexcept {
+    if (this != &src) {
+      delete[] array_;
+      array_ = src.array_;
+      empty_ = src.empty_;
+      dim1_ = src.dim1_;
+      dim2_ = src.dim2_;
+      size_allocated_ = src.size_allocated_;
+      src.array_ = nullptr;
+      src.empty_ = static_cast<T>(0);
+      src.dim1_ = 0;
+      src.dim2_ = 0;
+      src.size_allocated_ = 0;
     }
   }
 
@@ -662,7 +686,7 @@ public:
   ~MATRIX() override;
 
   // Returns true if there are any real classification results.
-  bool Classified(int col, int row, int wildcard_id) const;
+  bool Classified(int col, int row) const;
 
   // Expands the existing matrix in-place to make the band wider, without
   // losing any existing data.
