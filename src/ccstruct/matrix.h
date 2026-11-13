@@ -115,8 +115,28 @@ public:
   // not initialize the array either.
   // The allocated memory is expanded on the end by pad, allowing deliberate
   // access beyond the bounds of the array.
+  //
+  // Denial-of-service protection against *untrusted* sizes (dimensions read
+  // from a .traineddata file) is done at deserialization time in
+  // DeSerializeSize, which bounds each dimension and the total element
+  // count, and the TFile* overload additionally requires the declared
+  // element count to be backed by the bytes remaining in the stream. This
+  // method is also called by trusted runtime callers to size inference and
+  // training buffers -- e.g. a full-width OCR line through a deep Convolve
+  // layer legitimately exceeds 100,000,000 floats -- so it must not impose an
+  // arbitrary element cap here: an early return would leave dim1_/dim2_
+  // stale and corrupt every later access. It only rejects corrupted values
+  // and keeps the int element count below from wrapping.
   void ResizeNoInit(int size1, int size2, int pad = 0) {
-    int new_size = size1 * size2 + pad;
+    // Compute the total element count in 64 bits so it cannot overflow
+    // (in particular (-1) * (-1) must not pass as 1), then reject corrupted
+    // values: negative dimensions, or a total that would wrap the int cast
+    // below.
+    const int64_t total = static_cast<int64_t>(size1) * size2 + pad;
+    if (size1 < 0 || size2 < 0 || pad < 0 || total > INT32_MAX) {
+      return;
+    }
+    const int new_size = static_cast<int>(total);
     if (new_size > size_allocated_) {
       delete[] array_;
       array_ = new T[new_size];
@@ -125,7 +145,7 @@ public:
     dim1_ = size1;
     dim2_ = size2;
     // Fill the padding data so it isn't uninitialized.
-    for (int i = size1 * size2; i < new_size; ++i) {
+    for (int i = new_size - pad; i < new_size; ++i) {
       array_[i] = empty_;
     }
   }
@@ -585,11 +605,27 @@ protected:
     if (size2 > UINT16_MAX) {
       return false;
     }
+    // Unlike the TFile* overload, there is no stream position to check the
+    // declared size against, so bound the total element count as well: a
+    // crafted short file (e.g. 32768 x 65535, ~2.1e9 elements) would
+    // otherwise force a multi-gigabyte allocation before the missing payload
+    // is detected. Legitimate matrices deserialized through this path are
+    // far smaller.
+    if (static_cast<int64_t>(size1) * size2 > 100000000) {
+      return false;
+    }
     Resize(size1, size2, empty_);
     return true;
   }
   bool DeSerializeSize(TFile *fp) {
-    int32_t size1, size2;
+    // Read the dimensions as uint32_t, like the FILE * variant above.
+    // The previous int32_t read compared the signed value against the
+    // signed upper bound, so a negative dimension (e.g. 0xFFFFFFFF = -1)
+    // passed the check, later causing signed integer overflow in
+    // ResizeNoInit (size1 * size2) and out-of-bounds accesses in
+    // IntSimdMatrix. Read as unsigned, the same bytes are 0xFFFFFFFF
+    // and fail the bound check below.
+    uint32_t size1, size2;
     if (!fp->DeSerialize(&size1)) {
       return false;
     }
@@ -601,6 +637,16 @@ protected:
       return false;
     }
     if (size2 > UINT16_MAX) {
+      return false;
+    }
+    // The caller allocates before reading the elements, so the declared
+    // size must be backed by the bytes that actually remain in the stream
+    // (empty_ plus the element data). Without this check a crafted file
+    // could declare gigabytes of data while carrying a few hundred bytes,
+    // forcing a huge allocation (denial of service) from a tiny input.
+    const uint64_t required = (static_cast<uint64_t>(size1) * size2 + 1) *
+                              static_cast<uint64_t>(sizeof(T));
+    if (required > fp->RemainingBytes()) {
       return false;
     }
     Resize(size1, size2, empty_);
