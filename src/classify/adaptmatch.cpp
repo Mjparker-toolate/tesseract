@@ -553,6 +553,23 @@ bool Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
       }
     }
 
+    // font_set_id comes from the file and indexes fontset_table_ without a
+    // release-mode bounds check; with a shape table it is used unconditionally.
+    const int min_font_set_id = shape_table_ != nullptr ? 0 : -1;
+    for (unsigned i = 0; i < PreTrainedTemplates->NumClasses; i++) {
+      const int font_set_id = PreTrainedTemplates->Class[i]->font_set_id;
+      if (font_set_id < min_font_set_id || font_set_id >= fontset_table_.size()) {
+        tprintf("Error: font set id %d of class %u in inttemp is out of range, "
+                "cannot initialize the legacy engine.\n",
+                font_set_id, i);
+        delete PreTrainedTemplates;
+        PreTrainedTemplates = nullptr;
+        delete shape_table_;
+        shape_table_ = nullptr;
+        return false;
+      }
+    }
+
     ASSERT_HOST(mgr->GetComponent(TESSDATA_PFFMTABLE, &fp));
     ReadNewCutoffs(&fp, CharNormCutoffs);
 

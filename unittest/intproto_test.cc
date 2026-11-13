@@ -127,10 +127,15 @@ std::vector<char> MakeInttempWithFontSetId(int32_t font_set_id) {
 
 // Writes a traineddata file with a minimal unicharset and the given
 // (corrupt) inttemp component to dir/eng.traineddata.
-bool WriteCorruptTraineddata(const std::string &dir, const std::vector<char> &inttemp) {
+bool WriteCorruptTraineddata(const std::string &dir, const std::vector<char> &inttemp,
+                             bool with_shape_table = false) {
   TessdataManager mgr;
   mgr.OverwriteEntry(TESSDATA_UNICHARSET, kMinUnicharset, sizeof(kMinUnicharset) - 1);
   mgr.OverwriteEntry(TESSDATA_INTTEMP, inttemp.data(), static_cast<int>(inttemp.size()));
+  if (with_shape_table) {
+    const char kEmptyShapeTable[4] = {0, 0, 0, 0};
+    mgr.OverwriteEntry(TESSDATA_SHAPE_TABLE, kEmptyShapeTable, sizeof(kEmptyShapeTable));
+  }
   return mgr.SaveFile((dir + "/eng.traineddata").c_str(), nullptr);
 }
 
@@ -145,8 +150,8 @@ protected:
   }
   // Expects the legacy engine to reject the corrupted traineddata
   // gracefully (init failure) instead of corrupting memory.
-  void ExpectInitFails(const std::vector<char> &inttemp) {
-    ASSERT_TRUE(WriteCorruptTraineddata(dir_, inttemp));
+  void ExpectInitFails(const std::vector<char> &inttemp, bool with_shape_table = false) {
+    ASSERT_TRUE(WriteCorruptTraineddata(dir_, inttemp, with_shape_table));
     tesseract::TessBaseAPI api;
     EXPECT_EQ(api.Init(dir_.c_str(), "eng", tesseract::OEM_TESSERACT_ONLY), -1);
   }
@@ -201,13 +206,37 @@ TEST_F(IntprotoTest, RejectsBadFontInfoTable) {
   ExpectInitFails(inttemp);
 }
 
+// A version 5 spacing table declaring more entries than the fontinfo table
+// would leave FontInfo entries with a null name for SetupUniversalFontIds.
+TEST_F(IntprotoTest, RejectsMismatchedSpacingTable) {
+  std::vector<char> inttemp = MakeInttemp(-5, 0, 0, 1);
+  AppendS32(inttemp, 2); // fontinfo: reserved
+  AppendS32(inttemp, 1); // fontinfo: size_used
+  AppendS32(inttemp, 1); // name length
+  inttemp.push_back('a');
+  AppendS32(inttemp, 0); // properties
+  AppendS32(inttemp, 2); // spacing: reserved
+  AppendS32(inttemp, 2); // spacing: size_used
+  AppendS32(inttemp, 0); // empty spacing vector, font 0
+  AppendS32(inttemp, 0); // empty spacing vector, font 1
+  AppendS32(inttemp, 0); // fontset: reserved
+  AppendS32(inttemp, 0); // fontset: size_used
+  ExpectInitFails(inttemp);
+}
+
 // font_set_id indexes fontset_table_ without a release-mode bounds check.
 TEST_F(IntprotoTest, RejectsOutOfRangeFontSetId) {
   ExpectInitFails(MakeInttempWithFontSetId(5));
 }
 
 TEST_F(IntprotoTest, RejectsNegativeFontSetId) {
-  ExpectInitFails(MakeInttempWithFontSetId(-1));
+  ExpectInitFails(MakeInttempWithFontSetId(-2));
+}
+
+// -1 means "no font set" for old inttemps, but with a shape table the id is
+// used to index fontset_table_ unconditionally.
+TEST_F(IntprotoTest, RejectsMissingFontSetWithShapeTable) {
+  ExpectInitFails(MakeInttempWithFontSetId(-1), true);
 }
 
 } // namespace
