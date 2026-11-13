@@ -219,15 +219,22 @@ INT_FEATURE_STRUCT::INT_FEATURE_STRUCT(int x, int y, int theta)
  *
  * Globals: none
  */
-void AddIntClass(INT_TEMPLATES_STRUCT *Templates, CLASS_ID ClassId, INT_CLASS_STRUCT *Class) {
+bool AddIntClass(INT_TEMPLATES_STRUCT *Templates, CLASS_ID ClassId, INT_CLASS_STRUCT *Class) {
   int Pruner;
 
-  assert(LegalClassId(ClassId));
+  // ClassId indexes Class[] and (divided by CLASSES_PER_CP) ClassPruners[],
+  // so reject an out-of-range id instead of writing out of bounds. The
+  // previous check was a debug-only assertion that release builds skip.
+  if (!LegalClassId(ClassId)) {
+    tesserr << "Error: illegal class id " << ClassId << " in AddIntClass\n";
+    return false;
+  }
   if (static_cast<unsigned>(ClassId) != Templates->NumClasses) {
-    fprintf(stderr,
-            "Please make sure that classes are added to templates"
-            " in increasing order of ClassIds\n");
-    exit(1);
+    // Use tesserr (stderr) rather than tprintf (stdout): this is an error
+    // message and stdout is the data channel of the training tools.
+    tesserr << "Error: Please make sure that classes are added to templates"
+            << " in increasing order of ClassIds\n";
+    return false;
   }
   ClassForClassId(Templates, ClassId) = Class;
   Templates->NumClasses++;
@@ -237,6 +244,7 @@ void AddIntClass(INT_TEMPLATES_STRUCT *Templates, CLASS_ID ClassId, INT_CLASS_ST
     Templates->ClassPruners[Pruner] = new CLASS_PRUNER_STRUCT;
     memset(Templates->ClassPruners[Pruner], 0, sizeof(CLASS_PRUNER_STRUCT));
   }
+  return true;
 } /* AddIntClass */
 
 /**
@@ -495,6 +503,15 @@ INT_TEMPLATES_STRUCT *Classify::CreateIntTemplates(CLASSES FloatProtos,
   int ProtoId;
   int ConfigId;
 
+  // A unichar id indexes the fixed-size Class[] array (MAX_NUM_CLASSES
+  // entries), so a set larger than that would write out of bounds in
+  // AddIntClass below. Reject it up front rather than part-way through.
+  if (target_unicharset.size() > MAX_NUM_CLASSES) {
+    tesserr << "Error: unicharset has " << target_unicharset.size()
+            << " characters, more than MAX_NUM_CLASSES " << MAX_NUM_CLASSES << "\n";
+    return nullptr;
+  }
+
   auto IntTemplates = new INT_TEMPLATES_STRUCT;
 
   for (unsigned ClassId = 0; ClassId < target_unicharset.size(); ClassId++) {
@@ -513,7 +530,14 @@ INT_TEMPLATES_STRUCT *Classify::CreateIntTemplates(CLASSES FloatProtos,
       fs.push_back(FClass->font_set[i]);
     }
     IClass->font_set_id = this->fontset_table_.push_back(std::move(fs));
-    AddIntClass(IntTemplates, ClassId, IClass);
+    if (!AddIntClass(IntTemplates, ClassId, IClass)) {
+      // AddIntClass leaves the class with the caller on failure, and the
+      // template set only holds the classes added so far, so clean up both
+      // and report the failure instead of writing an incomplete set.
+      delete IClass;
+      delete IntTemplates;
+      return nullptr;
+    }
 
     for (ProtoId = 0; ProtoId < FClass->NumProtos; ProtoId++) {
       AddIntProto(IClass);
@@ -666,10 +690,13 @@ INT_TEMPLATES_STRUCT *Classify::ReadIntTemplates(TFile *fp) {
   // The counts read from the file are used as loop bounds that write into
   // fixed-size arrays (Class[], ClassPruners[], TempClassPruner[] and
   // IndexFor[]), so reject a corrupt or malicious file instead of writing
-  // out of bounds.
+  // out of bounds. A synthetic class 0 is appended below when version_id < 2,
+  // so that case must leave a free slot to keep NumClasses <= MAX_NUM_CLASSES
+  // for the consumers that loop over Class[0..NumClasses).
+  const unsigned max_num_classes = version_id < 2 ? MAX_NUM_CLASSES - 1 : MAX_NUM_CLASSES;
   if (unicharset_size > MAX_NUM_CLASSES ||
       Templates->NumClassPruners > MAX_NUM_CLASS_PRUNERS ||
-      Templates->NumClasses > MAX_NUM_CLASSES) {
+      Templates->NumClasses > max_num_classes) {
     tprintf("Error: invalid counts in inttemp: unicharset_size=%u, NumClassPruners=%u, "
             "NumClasses=%u\n",
             unicharset_size, Templates->NumClassPruners, Templates->NumClasses);
@@ -892,11 +919,20 @@ INT_TEMPLATES_STRUCT *Classify::ReadIntTemplates(TFile *fp) {
   }
   if (version_id >= 4) {
     using namespace std::placeholders; // for _1, _2
-    this->fontinfo_table_.read(fp, std::bind(read_info, _1, _2));
-    if (version_id >= 5) {
-      this->fontinfo_table_.read(fp, std::bind(read_spacing_info, _1, _2));
+    bool ok = this->fontinfo_table_.read(fp, std::bind(read_info, _1, _2));
+    // The spacing pass re-reads the same table with its own count; entries
+    // beyond the first count would be left with a null name.
+    const int num_fonts = this->fontinfo_table_.size();
+    if (ok && version_id >= 5) {
+      ok = this->fontinfo_table_.read(fp, std::bind(read_spacing_info, _1, _2)) &&
+           this->fontinfo_table_.size() == num_fonts;
     }
-    this->fontset_table_.read(fp, [](auto *f, auto *fs) { return f->DeSerialize(*fs); } );
+    if (!ok ||
+        !this->fontset_table_.read(fp, [](auto *f, auto *fs) { return f->DeSerialize(*fs); })) {
+      tprintf("Error: bad font tables in inttemp\n");
+      delete Templates;
+      return nullptr;
+    }
   }
 
   return (Templates);

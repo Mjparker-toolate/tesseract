@@ -21,10 +21,10 @@
 
 #include "intproto.h"     // for MAX_NUM_CLASS_PRUNERS, MAX_NUM_CLASSES
 #include "tessdatamanager.h"
+#include "util/tempdir.h" // for CreateTempDir, RemoveTempDir
 
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -108,36 +108,54 @@ std::vector<char> MakeLegacyInttemp(int32_t version_id, uint32_t num_classes,
   return data;
 }
 
+void AppendS32(std::vector<char> &data, int32_t v) {
+  const char *b = reinterpret_cast<const char *>(&v);
+  data.insert(data.end(), b, b + sizeof(v));
+}
+
+// A version -5 inttemp with one empty class whose font_set_id is the given
+// value, followed by empty fontinfo, spacing and fontset tables.
+std::vector<char> MakeInttempWithFontSetId(int32_t font_set_id) {
+  std::vector<char> data = MakeInttemp(-5, 0, 1, 1);
+  AppendS32(data, font_set_id);
+  for (int table = 0; table < 3; ++table) {
+    AppendS32(data, 0); // reserved
+    AppendS32(data, 0); // size_used
+  }
+  return data;
+}
+
 // Writes a traineddata file with a minimal unicharset and the given
 // (corrupt) inttemp component to dir/eng.traineddata.
-bool WriteCorruptTraineddata(const std::string &dir, const std::vector<char> &inttemp) {
+bool WriteCorruptTraineddata(const std::string &dir, const std::vector<char> &inttemp,
+                             bool with_shape_table = false) {
   TessdataManager mgr;
   mgr.OverwriteEntry(TESSDATA_UNICHARSET, kMinUnicharset, sizeof(kMinUnicharset) - 1);
   mgr.OverwriteEntry(TESSDATA_INTTEMP, inttemp.data(), static_cast<int>(inttemp.size()));
+  if (with_shape_table) {
+    const char kEmptyShapeTable[4] = {0, 0, 0, 0};
+    mgr.OverwriteEntry(TESSDATA_SHAPE_TABLE, kEmptyShapeTable, sizeof(kEmptyShapeTable));
+  }
   return mgr.SaveFile((dir + "/eng.traineddata").c_str(), nullptr);
 }
 
 class IntprotoTest : public testing::Test {
 protected:
   void SetUp() override {
-    tmpl_ = "/tmp/tess_intproto_test_XXXXXX";
-    char *dir = mkdtemp(tmpl_.data());
-    ASSERT_NE(dir, nullptr);
-    dir_ = dir;
+    dir_ = CreateTempDir("tess_intproto_test_");
+    ASSERT_FALSE(dir_.empty());
   }
   void TearDown() override {
-    std::remove((dir_ + "/eng.traineddata").c_str());
-    rmdir(dir_.c_str());
+    RemoveTempDir(dir_);
   }
   // Expects the legacy engine to reject the corrupted traineddata
   // gracefully (init failure) instead of corrupting memory.
-  void ExpectInitFails(const std::vector<char> &inttemp) {
-    ASSERT_TRUE(WriteCorruptTraineddata(dir_, inttemp));
+  void ExpectInitFails(const std::vector<char> &inttemp, bool with_shape_table = false) {
+    ASSERT_TRUE(WriteCorruptTraineddata(dir_, inttemp, with_shape_table));
     tesseract::TessBaseAPI api;
     EXPECT_EQ(api.Init(dir_.c_str(), "eng", tesseract::OEM_TESSERACT_ONLY), -1);
   }
   std::string dir_;
-  std::string tmpl_;
 };
 
 // NumClassPruners exceeds MAX_NUM_CLASS_PRUNERS: the pruner-read loop would
@@ -150,6 +168,14 @@ TEST_F(IntprotoTest, RejectsTooManyClassPruners) {
 // the end of INT_TEMPLATES_STRUCT::Class[].
 TEST_F(IntprotoTest, RejectsTooManyClasses) {
   ExpectInitFails(MakeInttemp(-5, 0, MAX_NUM_CLASSES + 1, 1));
+}
+
+// An old-format (version_id < 2) inttemp appends a synthetic class 0 and
+// increments NumClasses, so NumClasses == MAX_NUM_CLASSES would become
+// MAX_NUM_CLASSES + 1 and overrun Class[] in every consumer that loops over
+// NumClasses. The count must be rejected before the dummy class is added.
+TEST_F(IntprotoTest, RejectsNumClassesLeavingNoRoomForDummyClass) {
+  ExpectInitFails(MakeInttemp(-1, 0, MAX_NUM_CLASSES, 1));
 }
 
 // A class with NumProtoSets > MAX_NUM_PROTO_SETS: the proto-set loop would
@@ -176,6 +202,49 @@ TEST_F(IntprotoTest, RejectsNegativeClassId) {
 // but still a positive value.
 TEST_F(IntprotoTest, RejectsTooLargeClassId) {
   ExpectInitFails(MakeLegacyInttemp(-1, 1, 2, {MAX_NUM_CLASSES}));
+}
+
+// A fontinfo table whose element count exceeds its reserved size. The
+// failed read used to be ignored, leaving the table claiming 4096 entries
+// over a 1-entry buffer for the legacy init code to walk.
+TEST_F(IntprotoTest, RejectsBadFontInfoTable) {
+  std::vector<char> inttemp = MakeInttemp(-5, 0, 0, 1);
+  AppendS32(inttemp, 1);      // reserved
+  AppendS32(inttemp, 0x1000); // size_used
+  ExpectInitFails(inttemp);
+}
+
+// A version 5 spacing table declaring more entries than the fontinfo table
+// would leave FontInfo entries with a null name for SetupUniversalFontIds.
+TEST_F(IntprotoTest, RejectsMismatchedSpacingTable) {
+  std::vector<char> inttemp = MakeInttemp(-5, 0, 0, 1);
+  AppendS32(inttemp, 2); // fontinfo: reserved
+  AppendS32(inttemp, 1); // fontinfo: size_used
+  AppendS32(inttemp, 1); // name length
+  inttemp.push_back('a');
+  AppendS32(inttemp, 0); // properties
+  AppendS32(inttemp, 2); // spacing: reserved
+  AppendS32(inttemp, 2); // spacing: size_used
+  AppendS32(inttemp, 0); // empty spacing vector, font 0
+  AppendS32(inttemp, 0); // empty spacing vector, font 1
+  AppendS32(inttemp, 0); // fontset: reserved
+  AppendS32(inttemp, 0); // fontset: size_used
+  ExpectInitFails(inttemp);
+}
+
+// font_set_id indexes fontset_table_ without a release-mode bounds check.
+TEST_F(IntprotoTest, RejectsOutOfRangeFontSetId) {
+  ExpectInitFails(MakeInttempWithFontSetId(5));
+}
+
+TEST_F(IntprotoTest, RejectsNegativeFontSetId) {
+  ExpectInitFails(MakeInttempWithFontSetId(-2));
+}
+
+// -1 means "no font set" for old inttemps, but with a shape table the id is
+// used to index fontset_table_ unconditionally.
+TEST_F(IntprotoTest, RejectsMissingFontSetWithShapeTable) {
+  ExpectInitFails(MakeInttempWithFontSetId(-1), true);
 }
 
 } // namespace

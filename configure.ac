@@ -29,7 +29,7 @@ AM_INIT_AUTOMAKE([foreign subdir-objects nostdinc])
 # Define date of package, etc. Could be useful in auto-generated
 # documentation.
 PACKAGE_YEAR=2026
-PACKAGE_DATE="07/24"
+PACKAGE_DATE="10/28"
 
 abs_top_srcdir=`AS_DIRNAME([$0])`
 
@@ -484,11 +484,11 @@ AS_IF([test "x$with_curl" != xno], [
   fi
 ])
 
-PKG_CHECK_MODULES([LEPTONICA], [lept >= 1.74], [have_lept=true], [have_lept=false])
+PKG_CHECK_MODULES([LEPTONICA], [lept >= 1.80], [have_lept=true], [have_lept=false])
 if $have_lept; then
   CPPFLAGS="$CPPFLAGS $LEPTONICA_CFLAGS"
 else
-  AC_MSG_ERROR([Leptonica 1.74 or higher is required. Try to install libleptonica-dev package.])
+  AC_MSG_ERROR([Leptonica 1.80 or higher is required. Try to install libleptonica-dev package.])
 fi
 
 AM_CONDITIONAL([HAVE_LIBARCHIVE], false)

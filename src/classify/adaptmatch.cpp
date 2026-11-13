@@ -553,6 +553,23 @@ bool Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
       }
     }
 
+    // font_set_id comes from the file and indexes fontset_table_ without a
+    // release-mode bounds check; with a shape table it is used unconditionally.
+    const int min_font_set_id = shape_table_ != nullptr ? 0 : -1;
+    for (unsigned i = 0; i < PreTrainedTemplates->NumClasses; i++) {
+      const int font_set_id = PreTrainedTemplates->Class[i]->font_set_id;
+      if (font_set_id < min_font_set_id || font_set_id >= fontset_table_.size()) {
+        tprintf("Error: font set id %d of class %u in inttemp is out of range, "
+                "cannot initialize the legacy engine.\n",
+                font_set_id, i);
+        delete PreTrainedTemplates;
+        PreTrainedTemplates = nullptr;
+        delete shape_table_;
+        shape_table_ = nullptr;
+        return false;
+      }
+    }
+
     ASSERT_HOST(mgr->GetComponent(TESSDATA_PFFMTABLE, &fp));
     ReadNewCutoffs(&fp, CharNormCutoffs);
 
@@ -580,14 +597,14 @@ bool Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
     std::string Filename = imagefile;
     Filename += ADAPT_TEMPLATE_SUFFIX;
     if (!fp.Open(Filename.c_str(), nullptr)) {
-      AdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+      AdaptedTemplates = NewAdaptedTemplates();
     } else {
       tprintf("\nReading pre-adapted templates from %s ...\n", Filename.c_str());
       fflush(stdout);
       AdaptedTemplates = ReadAdaptedTemplates(&fp);
       if (AdaptedTemplates == nullptr) {
         tprintf("Error: invalid pre-adapted templates in %s, ignoring.\n", Filename.c_str());
-        AdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+        AdaptedTemplates = NewAdaptedTemplates();
       } else {
         tprintf("\n");
         PrintAdaptedTemplates(stdout, AdaptedTemplates);
@@ -599,17 +616,53 @@ bool Classify::InitAdaptiveClassifier(TessdataManager *mgr) {
     }
   } else {
     delete AdaptedTemplates;
-    AdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+    AdaptedTemplates = NewAdaptedTemplates();
+  }
+  if (AdaptedTemplates == nullptr) {
+    tprintf("Error: failed to initialize the adaptive classifier.\n");
+    return false;
   }
   return true;
 } /* InitAdaptiveClassifier */
+
+/*---------------------------------------------------------------------------*/
+/**
+ * This routine creates a new set of adapted templates for the current
+ * unicharset.
+ *  A unichar id indexes the fixed-size class arrays of the legacy
+ *  classifier, so a unicharset with more than MAX_NUM_CLASSES entries cannot
+ *  be represented. The constructor of ADAPT_TEMPLATES_STRUCT cannot report
+ *  that failure, so it is checked here.
+ *  Returns:
+ *      the new templates, or nullptr if they could not be created.
+ */
+ADAPT_TEMPLATES_STRUCT *Classify::NewAdaptedTemplates() {
+  if (unicharset.size() > static_cast<size_t>(MAX_NUM_CLASSES)) {
+    tprintf("Error: unicharset of size %zu exceeds MAX_NUM_CLASSES %d\n", unicharset.size(),
+            MAX_NUM_CLASSES);
+    return nullptr;
+  }
+  auto *templates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+  if (!templates->valid()) {
+    tprintf("Error: failed to create the adapted templates\n");
+    delete templates;
+    return nullptr;
+  }
+  return templates;
+}
 
 void Classify::ResetAdaptiveClassifierInternal() {
   if (classify_learning_debug_level > 0) {
     tprintf("Resetting adaptive classifier (NumAdaptationsFailed=%d)\n", NumAdaptationsFailed);
   }
+  // Build the new templates before discarding the old ones, so that a failure
+  // to build them leaves the classifier with a usable set of templates.
+  auto *templates = NewAdaptedTemplates();
+  if (templates == nullptr) {
+    return;
+  }
   delete AdaptedTemplates;
-  AdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+  AdaptedTemplates = templates;
   delete BackupAdaptedTemplates;
   BackupAdaptedTemplates = nullptr;
   NumAdaptationsFailed = 0;
@@ -634,8 +687,14 @@ void Classify::SwitchAdaptiveClassifier() {
 
 // Resets the backup adaptive classifier to empty.
 void Classify::StartBackupAdaptiveClassifier() {
+  // Build the new templates before discarding the old ones, so that a failure
+  // to build them leaves the classifier with a usable set of templates.
+  auto *templates = NewAdaptedTemplates();
+  if (templates == nullptr) {
+    return;
+  }
   delete BackupAdaptedTemplates;
-  BackupAdaptedTemplates = new ADAPT_TEMPLATES_STRUCT(unicharset);
+  BackupAdaptedTemplates = templates;
 }
 
 /*---------------------------------------------------------------------------*/

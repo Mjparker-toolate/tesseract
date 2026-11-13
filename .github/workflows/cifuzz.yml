@@ -10,17 +10,20 @@ on:
     - '**.h'
 jobs:
   Fuzzing:
+    # The OSS-Fuzz project builds tesseract-ocr/tesseract and resolves the PR
+    # ref there, so in a fork it would test an unrelated upstream PR.
+    if: github.repository == 'tesseract-ocr/tesseract'
     runs-on: ubuntu-latest
     steps:
     - name: Build Fuzzers
       id: build
-      uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@master
+      uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@532abdbe62918a51f004a25318a7c1fb3ea60e36 # master as of 2026-11-13
       with:
         oss-fuzz-project-name: 'tesseract-ocr'
         language: c++
         dry-run: false
     - name: Run Fuzzers
-      uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@master
+      uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@532abdbe62918a51f004a25318a7c1fb3ea60e36 # master as of 2026-11-13
       with:
         oss-fuzz-project-name: 'tesseract-ocr'
         fuzz-seconds: 600
