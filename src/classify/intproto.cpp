@@ -916,11 +916,25 @@ INT_TEMPLATES_STRUCT *Classify::ReadIntTemplates(TFile *fp) {
   }
   if (version_id >= 4) {
     using namespace std::placeholders; // for _1, _2
-    this->fontinfo_table_.read(fp, std::bind(read_info, _1, _2));
-    if (version_id >= 5) {
-      this->fontinfo_table_.read(fp, std::bind(read_spacing_info, _1, _2));
+    if (!this->fontinfo_table_.read(fp, std::bind(read_info, _1, _2)) ||
+        (version_id >= 5 &&
+         !this->fontinfo_table_.read(fp, std::bind(read_spacing_info, _1, _2))) ||
+        !this->fontset_table_.read(fp, [](auto *f, auto *fs) { return f->DeSerialize(*fs); })) {
+      tprintf("Error: bad font tables in inttemp\n");
+      delete Templates;
+      return nullptr;
     }
-    this->fontset_table_.read(fp, [](auto *f, auto *fs) { return f->DeSerialize(*fs); } );
+    // Consumers index fontset_table_ with font_set_id without a release-mode
+    // bounds check, so ids read from the file must be validated here.
+    for (unsigned i = 0; i < Templates->NumClasses; i++) {
+      const int font_set_id = ClassForClassId(Templates, i)->font_set_id;
+      if (font_set_id < 0 || font_set_id >= this->fontset_table_.size()) {
+        tprintf("Error: font set id %d of class %u in inttemp is out of range\n", font_set_id,
+                i);
+        delete Templates;
+        return nullptr;
+      }
+    }
   }
 
   return (Templates);

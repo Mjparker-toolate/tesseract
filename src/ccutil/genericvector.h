@@ -660,25 +660,28 @@ bool GenericVector<T>::read(TFile *f, const std::function<bool(TFile *, T *)> &c
     return false;
   }
   reserve(reserved);
-  if (f->FReadEndian(&size_used_, sizeof(size_used_), 1) != 1) {
+  // The element count is an independent file field. It is only committed to
+  // size_used_ after everything has been read, so a failed read never leaves
+  // the vector claiming more elements than its buffer holds.
+  int32_t size_used;
+  if (f->FReadEndian(&size_used, sizeof(size_used), 1) != 1) {
     return false;
   }
-  // size_used_ is an independent file field; without this check the reads
-  // below land past the end of the buffer sized from reserved.
-  if (size_used_ < 0 || size_used_ > reserved) {
+  if (size_used < 0 || size_used > reserved) {
     return false;
   }
   if (cb != nullptr) {
-    for (int i = 0; i < size_used_; ++i) {
+    for (int i = 0; i < size_used; ++i) {
       if (!cb(f, data_ + i)) {
         return false;
       }
     }
   } else {
-    if (f->FReadEndian(data_, sizeof(T), size_used_) != static_cast<unsigned>(size_used_)) {
+    if (f->FReadEndian(data_, sizeof(T), size_used) != static_cast<unsigned>(size_used)) {
       return false;
     }
   }
+  size_used_ = size_used;
   return true;
 }
 

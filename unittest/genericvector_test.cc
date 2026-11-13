@@ -75,6 +75,35 @@ TEST(GenericVectorTest, RejectsNegativeCounts) {
   EXPECT_FALSE(v.read(&fp, [](TFile *f, int *p) { return f->DeSerialize(p); }));
 }
 
+// A rejected count must not be left behind in the vector: otherwise a
+// later read() reallocates and copies size_used_ elements out of the old
+// 4-element buffer, and the destructor walks past it.
+TEST(GenericVectorTest, RejectedCountDoesNotStick) {
+  ByteWriter w;
+  w.PutS32(4);
+  w.PutS32(0x1000);
+  w.PutS32(8);
+  w.PutS32(0);
+  TFile fp;
+  ASSERT_TRUE(fp.Open(w.data().data(), w.data().size()));
+  GenericVector<int> v;
+  auto cb = [](TFile *f, int *p) { return f->DeSerialize(p); };
+  EXPECT_FALSE(v.read(&fp, cb));
+  EXPECT_EQ(v.size(), 0);
+  EXPECT_TRUE(v.read(&fp, cb));
+  EXPECT_EQ(v.size(), 0);
+}
+
+// A callback that fails partway must not change the element count.
+TEST(GenericVectorTest, FailedCallbackKeepsSize) {
+  std::vector<char> bytes = MakeVector(4, 4, 2);
+  TFile fp;
+  ASSERT_TRUE(fp.Open(bytes.data(), bytes.size()));
+  GenericVector<int> v;
+  EXPECT_FALSE(v.read(&fp, [](TFile *f, int *p) { return f->DeSerialize(p); }));
+  EXPECT_EQ(v.size(), 0);
+}
+
 // A consistent vector must still be accepted.
 TEST(GenericVectorTest, AcceptsConsistentVector) {
   std::vector<char> bytes = MakeVector(4, 2, 2);

@@ -108,6 +108,23 @@ std::vector<char> MakeLegacyInttemp(int32_t version_id, uint32_t num_classes,
   return data;
 }
 
+void AppendS32(std::vector<char> &data, int32_t v) {
+  const char *b = reinterpret_cast<const char *>(&v);
+  data.insert(data.end(), b, b + sizeof(v));
+}
+
+// A version -5 inttemp with one empty class whose font_set_id is the given
+// value, followed by empty fontinfo, spacing and fontset tables.
+std::vector<char> MakeInttempWithFontSetId(int32_t font_set_id) {
+  std::vector<char> data = MakeInttemp(-5, 0, 1, 1);
+  AppendS32(data, font_set_id);
+  for (int table = 0; table < 3; ++table) {
+    AppendS32(data, 0); // reserved
+    AppendS32(data, 0); // size_used
+  }
+  return data;
+}
+
 // Writes a traineddata file with a minimal unicharset and the given
 // (corrupt) inttemp component to dir/eng.traineddata.
 bool WriteCorruptTraineddata(const std::string &dir, const std::vector<char> &inttemp) {
@@ -172,6 +189,25 @@ TEST_F(IntprotoTest, RejectsNegativeClassId) {
 // but still a positive value.
 TEST_F(IntprotoTest, RejectsTooLargeClassId) {
   ExpectInitFails(MakeLegacyInttemp(-1, 1, 2, {MAX_NUM_CLASSES}));
+}
+
+// A fontinfo table whose element count exceeds its reserved size. The
+// failed read used to be ignored, leaving the table claiming 4096 entries
+// over a 1-entry buffer for the legacy init code to walk.
+TEST_F(IntprotoTest, RejectsBadFontInfoTable) {
+  std::vector<char> inttemp = MakeInttemp(-5, 0, 0, 1);
+  AppendS32(inttemp, 1);      // reserved
+  AppendS32(inttemp, 0x1000); // size_used
+  ExpectInitFails(inttemp);
+}
+
+// font_set_id indexes fontset_table_ without a release-mode bounds check.
+TEST_F(IntprotoTest, RejectsOutOfRangeFontSetId) {
+  ExpectInitFails(MakeInttempWithFontSetId(5));
+}
+
+TEST_F(IntprotoTest, RejectsNegativeFontSetId) {
+  ExpectInitFails(MakeInttempWithFontSetId(-1));
 }
 
 } // namespace
