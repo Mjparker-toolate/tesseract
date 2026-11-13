@@ -690,10 +690,13 @@ INT_TEMPLATES_STRUCT *Classify::ReadIntTemplates(TFile *fp) {
   // The counts read from the file are used as loop bounds that write into
   // fixed-size arrays (Class[], ClassPruners[], TempClassPruner[] and
   // IndexFor[]), so reject a corrupt or malicious file instead of writing
-  // out of bounds.
+  // out of bounds. A synthetic class 0 is appended below when version_id < 2,
+  // so that case must leave a free slot to keep NumClasses <= MAX_NUM_CLASSES
+  // for the consumers that loop over Class[0..NumClasses).
+  const unsigned max_num_classes = version_id < 2 ? MAX_NUM_CLASSES - 1 : MAX_NUM_CLASSES;
   if (unicharset_size > MAX_NUM_CLASSES ||
       Templates->NumClassPruners > MAX_NUM_CLASS_PRUNERS ||
-      Templates->NumClasses > MAX_NUM_CLASSES) {
+      Templates->NumClasses > max_num_classes) {
     tprintf("Error: invalid counts in inttemp: unicharset_size=%u, NumClassPruners=%u, "
             "NumClasses=%u\n",
             unicharset_size, Templates->NumClassPruners, Templates->NumClasses);

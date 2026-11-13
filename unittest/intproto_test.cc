@@ -170,6 +170,14 @@ TEST_F(IntprotoTest, RejectsTooManyClasses) {
   ExpectInitFails(MakeInttemp(-5, 0, MAX_NUM_CLASSES + 1, 1));
 }
 
+// An old-format (version_id < 2) inttemp appends a synthetic class 0 and
+// increments NumClasses, so NumClasses == MAX_NUM_CLASSES would become
+// MAX_NUM_CLASSES + 1 and overrun Class[] in every consumer that loops over
+// NumClasses. The count must be rejected before the dummy class is added.
+TEST_F(IntprotoTest, RejectsNumClassesLeavingNoRoomForDummyClass) {
+  ExpectInitFails(MakeInttemp(-1, 0, MAX_NUM_CLASSES, 1));
+}
+
 // A class with NumProtoSets > MAX_NUM_PROTO_SETS: the proto-set loop would
 // write past the end of INT_CLASS_STRUCT::ProtoSets[].
 TEST_F(IntprotoTest, RejectsTooManyProtoSets) {
